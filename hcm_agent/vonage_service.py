@@ -2,15 +2,14 @@
 
 import os
 import logging
-from vonage import Client
-from vonage.errors import VonageApiError
+import requests
 
 logger = logging.getLogger(__name__)
 
 
 class VonageVoiceService:
     """
-    Vonage integration for making voice calls.
+    Vonage integration for making voice calls using REST API.
 
     Vonage (formerly Nexmo) provides affordable voice infrastructure
     with a free tier for testing.
@@ -24,7 +23,6 @@ class VonageVoiceService:
         if not all([self.api_key, self.api_secret, self.phone_number]):
             raise ValueError("Vonage credentials not configured. Check .env file.")
 
-        self.client = Client(key=self.api_key, secret=self.api_secret)
         logger.info("Vonage voice service initialized")
 
     def make_call(self, to_number: str, patient_name: str = "Patient") -> str:
@@ -39,36 +37,56 @@ class VonageVoiceService:
             Call UUID for tracking
         """
         try:
-            # Format phone numbers (remove dashes and ensure +1 format)
+            # Format phone numbers
             to_number = self._format_phone(to_number)
             from_number = self._format_phone(self.phone_number)
 
             logger.info(f"Making call from {from_number} to {to_number}")
 
-            # Create the call with basic TwiML-like greeting
-            response = self.client.voice.create_call({
+            # Vonage Voice API endpoint
+            url = "https://api.vonage.com/v1/calls"
+
+            # NCCO (Nexmo Call Control Objects) - defines the call flow
+            ncco = [
+                {
+                    "action": "talk",
+                    "text": f"Hello {patient_name}, this is a call from the Healthcare Management Voice Agent. Thank you for answering. You can now hang up.",
+                    "language": "en-US",
+                    "style": 1
+                }
+            ]
+
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            # Use simpler query parameter authentication
+            params = {
+                "api_key": self.api_key,
+                "api_secret": self.api_secret
+            }
+
+            payload = {
                 "to": [{"type": "phone", "number": to_number}],
                 "from": {"type": "phone", "number": from_number},
-                "ncco": [
-                    {
-                        "action": "talk",
-                        "text": f"Hello {patient_name}, this is a call from the Healthcare Management Voice Agent. Thank you for answering. You can now hang up.",
-                        "language": "en-US"
-                    }
-                ]
-            })
+                "ncco": ncco
+            }
 
-            if response and "uuid" in response:
-                call_uuid = response["uuid"]
-                logger.info(f"Call initiated. UUID: {call_uuid}")
-                return call_uuid
+            response = requests.post(url, json=payload, headers=headers, params=params, timeout=10)
+
+            if response.status_code in [200, 201]:
+                data = response.json()
+                if "uuid" in data:
+                    call_uuid = data["uuid"]
+                    logger.info(f"Call initiated. UUID: {call_uuid}")
+                    return call_uuid
+                else:
+                    logger.error(f"No UUID in response: {data}")
+                    return None
             else:
-                logger.error(f"Unexpected response from Vonage: {response}")
+                logger.error(f"Vonage API error: {response.status_code} - {response.text}")
                 return None
 
-        except VonageApiError as e:
-            logger.error(f"Vonage API error: {e}")
-            raise
         except Exception as e:
             logger.error(f"Failed to make call: {e}")
             raise
@@ -91,8 +109,20 @@ class VonageVoiceService:
     def get_call_status(self, call_uuid: str) -> dict:
         """Get the status of a call."""
         try:
-            response = self.client.voice.get_call(call_uuid)
-            return response
+            url = f"https://api.vonage.com/v1/calls/{call_uuid}"
+            params = {
+                "api_key": self.api_key,
+                "api_secret": self.api_secret
+            }
+
+            response = requests.get(url, params=params, timeout=10)
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(f"Failed to get call status: {response.status_code}")
+                return None
+
         except Exception as e:
             logger.error(f"Failed to get call status: {e}")
             return None
@@ -100,9 +130,23 @@ class VonageVoiceService:
     def hangup_call(self, call_uuid: str) -> bool:
         """Hangup an active call."""
         try:
-            self.client.voice.hangup_call(call_uuid)
-            logger.info(f"Call {call_uuid} hung up")
-            return True
+            url = f"https://api.vonage.com/v1/calls/{call_uuid}"
+            params = {
+                "api_key": self.api_key,
+                "api_secret": self.api_secret
+            }
+
+            payload = {"action": "hangup"}
+
+            response = requests.put(url, json=payload, params=params, timeout=10)
+
+            if response.status_code in [200, 204]:
+                logger.info(f"Call {call_uuid} hung up")
+                return True
+            else:
+                logger.error(f"Failed to hangup call: {response.status_code}")
+                return False
+
         except Exception as e:
             logger.error(f"Failed to hangup call: {e}")
             return False

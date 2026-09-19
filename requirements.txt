@@ -3,7 +3,7 @@ python-dotenv
 pydantic
 
 # Voice infrastructure
-vonage
+requests
 deepgram-sdk
 elevenlabs
 
