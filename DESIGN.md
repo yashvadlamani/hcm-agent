@@ -1,174 +1,51 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HCM Voice Outreach Agent: System Design & Implementation</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #1a1a1a;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-        @media (prefers-color-scheme: dark) {
-            body { background: #0d0d0d; color: #e0e0e0; }
-            .card { background: #1a1a1a; border-color: #333; }
-            code, pre { background: #2a2a2a; color: #e0e0e0; }
-            a { color: #6ba0f5; }
-        }
-        .container { max-width: 900px; margin: 0 auto; }
-        h1 { font-size: 2.2em; margin: 1em 0 0.5em; }
-        h2 { font-size: 1.6em; margin: 1.5em 0 0.5em; color: #0066cc; }
-        @media (prefers-color-scheme: dark) { h2 { color: #6ba0f5; } }
-        h3 { font-size: 1.2em; margin: 1em 0 0.5em; }
-        h4 { font-size: 1.05em; margin: 0.8em 0 0.3em; font-weight: 600; }
-        p { margin: 0.8em 0; }
-        .card {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 1.5em 0;
-        }
-        code {
-            background: #f0f0f0;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 0.9em;
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-        }
-        pre {
-            background: #f0f0f0;
-            padding: 15px;
-            border-radius: 5px;
-            overflow-x: auto;
-            margin: 1em 0;
-            font-size: 0.85em;
-        }
-        pre code { background: none; padding: 0; }
-        ul, ol { margin: 1em 0 1em 2em; }
-        li { margin: 0.5em 0; }
-        .warning {
-            background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 15px;
-            margin: 1em 0;
-            border-radius: 4px;
-        }
-        @media (prefers-color-scheme: dark) {
-            .warning { background: #664d03; border-left-color: #ffc107; }
-        }
-        .success {
-            background: #d4edda;
-            border-left: 4px solid #28a745;
-            padding: 15px;
-            margin: 1em 0;
-            border-radius: 4px;
-        }
-        @media (prefers-color-scheme: dark) {
-            .success { background: #155724; border-left-color: #28a745; }
-        }
-        .toc {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 1.5em 0;
-            border: 1px solid #ddd;
-        }
-        @media (prefers-color-scheme: dark) {
-            .toc { background: #1a1a1a; border-color: #333; }
-        }
-        .toc a { display: block; padding: 5px 0; margin-left: 1em; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 1em 0;
-        }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        th { background: #f9f9f9; font-weight: 600; }
-        @media (prefers-color-scheme: dark) {
-            th { background: #2a2a2a; }
-            td, th { border-color: #333; }
-        }
-        .diagram {
-            background: white;
-            border: 1px solid #ddd;
-            padding: 20px;
-            margin: 1.5em 0;
-            border-radius: 8px;
-            text-align: center;
-            font-family: monospace;
-            font-size: 0.85em;
-            overflow-x: auto;
-        }
-        @media (prefers-color-scheme: dark) {
-            .diagram { background: #1a1a1a; border-color: #333; }
-        }
-        .metric {
-            display: inline-block;
-            background: #f0f0f0;
-            padding: 8px 12px;
-            border-radius: 4px;
-            margin: 5px 10px 5px 0;
-            font-size: 0.9em;
-        }
-        @media (prefers-color-scheme: dark) {
-            .metric { background: #2a2a2a; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>HCM Voice Outreach Agent: System Design & Implementation Guide</h1>
-        <p><strong>Last Updated:</strong> September 19, 2026</p>
+# HCM Voice Outreach Agent: System Design & Implementation Guide
 
-        <div class="toc card">
-            <h3>Table of Contents</h3>
-            <a href="#section-1">1. Architecture & Knowledge Retrieval</a>
-            <a href="#section-2">2. Prompt Engineering & Guardrails</a>
-            <a href="#section-3">3. Action Execution (Tool Calling)</a>
-            <a href="#section-4">4. End-to-End Integration & Compliance</a>
-        </div>
+**Last Updated:** September 19, 2026
 
-        <!-- SECTION 1 -->
-        <h2 id="section-1">1. Architecture & Knowledge Retrieval</h2>
+---
 
-        <div class="card">
-            <h3>1.1 System Overview</h3>
-            <p>Your pipeline has four core stages:</p>
-            <div class="diagram">
+## Table of Contents
+
+1. [Architecture & Knowledge Retrieval](#architecture--knowledge-retrieval)
+2. [Prompt Engineering & Guardrails](#prompt-engineering--guardrails)
+3. [Action Execution (Tool Calling)](#action-execution-tool-calling)
+4. [End-to-End Integration & Compliance](#end-to-end-integration--compliance)
+
+---
+
+## Architecture & Knowledge Retrieval
+
+### System Overview
+
+Your pipeline has four core stages:
+
+```
 ML Model Flag
-      ↓
-  [High-Risk Patient + Top 5 Risk Drivers]
-      ↓
+    ↓
+[High-Risk Patient + Top 5 Risk Drivers]
+    ↓
 Retrieval Augmented Generation (RAG)
-      ↓
-  [Context + Approved Documents]
-      ↓
- LLM-Based Voice Agent
-      ↓
+    ↓
+[Context + Approved Documents]
+    ↓
+LLM-Based Voice Agent
+    ↓
 [Tool Calls → Business Logic Execution]
-            </div>
-            <p><strong>Key architectural decisions:</strong></p>
-            <ul>
-                <li><strong>Synchronous + Async Queueing:</strong> Trigger on ML flag → async queue → voice call (user-initiated or auto-dialed)</li>
-                <li><strong>Context Window Management:</strong> Pre-load patient risk drivers + relevant docs upfront to minimize latency</li>
-                <li><strong>RAG as Safety Guard:</strong> Vector DB + keyword search ensures only approved docs are referenced</li>
-                <li><strong>Streaming + Interruption:</strong> Stream audio output to support natural conversation flow and patient interrupt capability</li>
-            </ul>
-        </div>
+```
 
-        <div class="card">
-            <h3>1.2 ML Model → Agent Pipeline</h3>
-            <p>The ML model should produce a structured output:</p>
-            <pre><code>{
+**Key architectural decisions:**
+
+- **Synchronous + Async Queueing:** Trigger on ML flag → async queue → voice call (user-initiated or auto-dialed)
+- **Context Window Management:** Pre-load patient risk drivers + relevant docs upfront to minimize latency
+- **RAG as Safety Guard:** Vector DB + keyword search ensures only approved docs are referenced
+- **Streaming + Interruption:** Stream audio output to support natural conversation flow and patient interrupt capability
+
+### ML Model → Agent Pipeline
+
+The ML model should produce a structured output:
+
+```json
+{
   "patient_id": "PT_123456",
   "risk_score": 0.87,
   "risk_category": "diabetes_complication_risk",
@@ -189,15 +66,18 @@ Retrieval Augmented Generation (RAG)
     "do_not_call": false,
     "previous_engagement": true
   }
-}</code></pre>
+}
+```
 
-            <h4>Agent Ingestion (Pseudo-code)</h4>
-            <pre><code>async function ingestMLFlag(flag):
+#### Agent Ingestion (Pseudo-code)
+
+```python
+async def ingestMLFlag(flag):
     # 1. Validate patient data integrity
     patient = await db.getPatient(flag.patient_id)
     if patient.status == "deceased" or patient.dnd_status == "active":
         return log("Patient DND or inactive")
-
+    
     # 2. Retrieve approved documents via RAG
     relevant_docs = await rag.retrieve(
         query=flag.risk_category,
@@ -205,7 +85,7 @@ Retrieval Augmented Generation (RAG)
         doc_filters=["approved", "published"],
         max_docs=5
     )
-
+    
     # 3. Build context for agent
     agent_context = {
         "patient": patient,
@@ -214,7 +94,7 @@ Retrieval Augmented Generation (RAG)
         "session_id": uuid.generate(),
         "timestamp": now()
     }
-
+    
     # 4. Queue for voice call (async)
     await queue.enqueue({
         "patient_id": flag.patient_id,
@@ -222,29 +102,30 @@ Retrieval Augmented Generation (RAG)
         "priority": flag.risk_score,
         "callback_handler": scheduleCall
     })
+    
+    return {"status": "queued", "session_id": agent_context.session_id}
+```
 
-    return {"status": "queued", "session_id": agent_context.session_id}</code></pre>
-        </div>
+### RAG Architecture: Knowledge Retrieval
 
-        <div class="card">
-            <h3>1.3 RAG Architecture: Knowledge Retrieval</h3>
-            <p><strong>Goal:</strong> Ensure the agent only cites pre-approved company guidance, not hallucinated medical information.</p>
+**Goal:** Ensure the agent only cites pre-approved company guidance, not hallucinated medical information.
 
-            <h4>Vector Database Setup</h4>
-            <ul>
-                <li><strong>Store:</strong> Approved clinical guidelines, patient education materials, care pathways (PDF, markdown, structured data)</li>
-                <li><strong>Chunking:</strong> Split docs into 300–500 token chunks with metadata tags (source, approval_date, version, category)</li>
-                <li><strong>Embedding Model:</strong> Use a biomedical-tuned model (e.g., PubMedBERT, or fine-tune on your approved docs)</li>
-                <li><strong>Indexing:</strong> Pinecone, Weaviate, or Milvus. Include hybrid search (BM25 + semantic).</li>
-            </ul>
+#### Vector Database Setup
 
-            <h4>Retrieval Pipeline</h4>
-            <pre><code">class RAGRetriever:
+- **Store:** Approved clinical guidelines, patient education materials, care pathways (PDF, markdown, structured data)
+- **Chunking:** Split docs into 300–500 token chunks with metadata tags (source, approval_date, version, category)
+- **Embedding Model:** Use a biomedical-tuned model (e.g., PubMedBERT, or fine-tune on your approved docs)
+- **Indexing:** Pinecone, Weaviate, or Milvus. Include hybrid search (BM25 + semantic).
+
+#### Retrieval Pipeline
+
+```python
+class RAGRetriever:
     def __init__(self, vector_db, document_store):
         self.vector_db = vector_db
         self.doc_store = document_store
         self.approval_cache = {}  # In-memory cache of approved docs
-
+    
     async def retrieve_safe(self, query, patient_risk_drivers, max_docs=5):
         """
         Retrieve only APPROVED documents relevant to patient context.
@@ -255,7 +136,7 @@ Retrieval Augmented Generation (RAG)
             top_k=10,
             filters={"status": "approved"}
         )
-
+        
         # 2. Keyword search for explicit medical terms in risk drivers
         keyword_queries = [d["driver"] for d in patient_risk_drivers[:3]]
         keyword_results = await self.vector_db.bm25_search(
@@ -263,10 +144,10 @@ Retrieval Augmented Generation (RAG)
             filters={"status": "approved"},
             top_k=5
         )
-
+        
         # 3. Deduplicate and merge
         docs = self._merge_results(semantic_results, keyword_results, max_docs)
-
+        
         # 4. Add verification step
         verified_docs = []
         for doc in docs:
@@ -278,14 +159,14 @@ Retrieval Augmented Generation (RAG)
                     "approved_date": source_meta["approval_date"],
                     "relevance_score": doc["score"]
                 })
-
+        
         return verified_docs
-
+    
     def _merge_results(self, semantic, keyword, max_docs):
         """Merge results with deduplication."""
         seen_ids = set()
         merged = []
-
+        
         # Semantic results have higher priority
         for result in semantic + keyword:
             if result["doc_id"] not in seen_ids:
@@ -293,66 +174,39 @@ Retrieval Augmented Generation (RAG)
                 seen_ids.add(result["doc_id"])
                 if len(merged) >= max_docs:
                     break
-
+        
         return merged
-</code></pre>
+```
 
-            <h4>Safety Guardrails for RAG</h4>
-            <ul>
-                <li><strong>Source Attribution:</strong> Always cite the document source in the response</li>
-                <li><strong>Confidence Thresholding:</strong> Only include results with similarity > 0.7</li>
-                <li><strong>Fallback:</strong> If no documents found, explicitly state "I don't have guidance on this topic" (don't hallucinate)</li>
-                <li><strong>Version Control:</strong> Track document approval dates; don't reference outdated guidance</li>
-                <li><strong>Audit Trail:</strong> Log every retrieval for compliance review</li>
-            </ul>
-        </div>
+#### Safety Guardrails for RAG
 
-        <div class="card">
-            <h3>1.4 Voice Latency Optimization</h3>
-            <p>Real-time voice conversations require sub-500ms latency. Here's how to achieve it:</p>
+- **Source Attribution:** Always cite the document source in the response
+- **Confidence Thresholding:** Only include results with similarity > 0.7
+- **Fallback:** If no documents found, explicitly state "I don't have guidance on this topic" (don't hallucinate)
+- **Version Control:** Track document approval dates; don't reference outdated guidance
+- **Audit Trail:** Log every retrieval for compliance review
 
-            <h4>Latency Budget</h4>
-            <table>
-                <tr>
-                    <th>Stage</th>
-                    <th>Target (ms)</th>
-                    <th>Strategy</th>
-                </tr>
-                <tr>
-                    <td>Audio capture → ASR</td>
-                    <td>200–300</td>
-                    <td>Stream ASR (e.g., Google Cloud Speech, Deepgram)</td>
-                </tr>
-                <tr>
-                    <td>Intent extraction</td>
-                    <td>100–150</td>
-                    <td>Cached embeddings, lightweight classifier</td>
-                </tr>
-                <tr>
-                    <td>RAG retrieval</td>
-                    <td>150–200</td>
-                    <td>Pre-compute vs. real-time trade-off</td>
-                </tr>
-                <tr>
-                    <td>LLM inference (streaming)</td>
-                    <td>300–500</td>
-                    <td>Token streaming (first token latency critical)</td>
-                </tr>
-                <tr>
-                    <td>TTS synthesis</td>
-                    <td>200–300</td>
-                    <td>Streaming TTS (e.g., ElevenLabs, Google TTS)</td>
-                </tr>
-                <tr>
-                    <td><strong>Total Round-Trip</strong></td>
-                    <td><strong>&lt;1.5s</strong></td>
-                    <td>Parallel + caching</td>
-                </tr>
-            </table>
+### Voice Latency Optimization
 
-            <h4>Pre-computation Strategy</h4>
-            <p><strong>Critical insight:</strong> Pre-load context <em>before</em> the voice call starts.</p>
-            <pre><code"># Pre-compute during async queue wait
+Real-time voice conversations require sub-500ms latency. Here's how to achieve it:
+
+#### Latency Budget
+
+| Stage | Target (ms) | Strategy |
+|-------|-------------|----------|
+| Audio capture → ASR | 200–300 | Stream ASR (e.g., Google Cloud Speech, Deepgram) |
+| Intent extraction | 100–150 | Cached embeddings, lightweight classifier |
+| RAG retrieval | 150–200 | Pre-compute vs. real-time trade-off |
+| LLM inference (streaming) | 300–500 | Token streaming (first token latency critical) |
+| TTS synthesis | 200–300 | Streaming TTS (e.g., ElevenLabs, Google TTS) |
+| **Total Round-Trip** | **< 1.5s** | Parallel + caching |
+
+#### Pre-computation Strategy
+
+**Critical insight:** Pre-load context *before* the voice call starts.
+
+```python
+# Pre-compute during async queue wait
 async def prepare_context(patient_id, risk_drivers):
     """
     Called while user is arriving at the call, before voice starts.
@@ -364,7 +218,7 @@ async def prepare_context(patient_id, risk_drivers):
         "tool_schemas": load_tool_schemas(),  # Pre-serialize
         "conversation_history": []
     }
-
+    
     # Store in fast cache (Redis, in-memory)
     await fast_cache.set(f"context:{patient_id}", patient_context, ttl=3600)
     return patient_context
@@ -373,12 +227,12 @@ async def prepare_context(patient_id, risk_drivers):
 async def handle_voice_call(patient_id, audio_stream):
     # Retrieve from cache (< 5ms)
     context = await fast_cache.get(f"context:{patient_id}")
-
+    
     # Process incoming audio
     async for transcript_chunk in asr_stream(audio_stream):
         # Parallel: tool selection + response generation
         intent = classify_intent(transcript_chunk)
-
+        
         # Parallel tasks
         tool_prep = tools.prepare(intent, context)
         response_gen = agent.generate(
@@ -386,22 +240,24 @@ async def handle_voice_call(patient_id, audio_stream):
             context=context,
             tools_available=tool_schemas
         )
-
+        
         # Wait for first token of response
         async for token in response_gen:
             # Stream to TTS immediately
             await tts_stream(token)
             break  # First token latency
-</code></pre>
-        </div>
+```
 
-        <!-- SECTION 2 -->
-        <h2 id="section-2">2. Prompt Engineering & Guardrails</h2>
+---
 
-        <div class="card">
-            <h3>2.1 Core System Prompt</h3>
-            <p>This is the foundational instructions for your agent:</p>
-            <pre><code>You are a compassionate healthcare support agent for a patient health
+## Prompt Engineering & Guardrails
+
+### Core System Prompt
+
+This is the foundational instructions for your agent:
+
+```
+You are a compassionate healthcare support agent for a patient health
 management program. Your role is to:
 
 1. PROVIDE GUIDANCE: Share evidence-based information from approved
@@ -457,18 +313,22 @@ You CANNOT and SHOULD NOT:
 SESSION CONTEXT:
 Patient Risk Profile: {patient_risk_drivers}
 Approved Guidance Documents: {approved_docs_list}
-Patient Medical History: {medical_history_summary}</code></pre>
+Patient Medical History: {medical_history_summary}
+```
 
-            <h4>Dynamic Personalization</h4>
-            <p>Inject patient-specific context at runtime:</p>
-            <pre><code>def build_system_prompt(patient_context, risk_drivers, approved_docs):
+#### Dynamic Personalization
+
+Inject patient-specific context at runtime:
+
+```python
+def build_system_prompt(patient_context, risk_drivers, approved_docs):
     """
     Construct system prompt with patient-specific guardrails.
     """
-
+    
     # Base template
     base_prompt = load_template("system_prompt_base.txt")
-
+    
     # Risk-specific guidance
     risk_guidance = {
         "high_hba1c": "Patient has elevated HbA1c. Focus on medication adherence & lifestyle.",
@@ -476,10 +336,10 @@ Patient Medical History: {medical_history_summary}</code></pre>
         "medication_gaps": "Patient is missing refills. Help identify barriers & schedule.",
         "no_recent_visit": "Patient hasn't seen provider recently. Encourage scheduling."
     }
-
-    active_guidance = [risk_guidance[driver]
+    
+    active_guidance = [risk_guidance[driver] 
                        for driver in patient_context["risk_flags"]]
-
+    
     # Assemble final prompt
     final_prompt = base_prompt.format(
         patient_name=patient_context["first_name"],
@@ -490,62 +350,29 @@ Patient Medical History: {medical_history_summary}</code></pre>
         care_manager_contact=patient_context["assigned_care_manager"],
         escalation_phone=URGENT_ESCALATION_NUMBER
     )
+    
+    return final_prompt
+```
 
-    return final_prompt</code></pre>
-        </div>
+### Handling Edge Cases & Distress
 
-        <div class="card">
-            <h3>2.2 Handling Edge Cases & Distress</h3>
-            <p>Patients may disclose concerning information during the call. Here's how to respond:</p>
+Patients may disclose concerning information during the call. Here's how to respond:
 
-            <h4>Distress Detection & Response Matrix</h4>
-            <table>
-                <tr>
-                    <th>Scenario</th>
-                    <th>Detection Trigger</th>
-                    <th>Agent Response</th>
-                    <th>Action</th>
-                </tr>
-                <tr>
-                    <td><strong>Acute Medical Emergency</strong></td>
-                    <td>Chest pain, severe breathing difficulty, stroke signs, severe bleeding</td>
-                    <td>"This requires immediate emergency care. I'm calling 911 now."</td>
-                    <td>Transfer call to 911 or nearest ER</td>
-                </tr>
-                <tr>
-                    <td><strong>Mental Health Crisis</strong></td>
-                    <td>Suicidal ideation, active self-harm, severe confusion</td>
-                    <td>"I'm concerned about your safety. I'm connecting you to a crisis specialist right now."</td>
-                    <td>Transfer to 988 (Suicide & Crisis Lifeline) or local crisis team</td>
-                </tr>
-                <tr>
-                    <td><strong>Worsening Symptoms</strong></td>
-                    <td>"I've been feeling much worse…", new symptoms reported</td>
-                    <td>"Thank you for sharing that. I want our care team to evaluate this. I'm scheduling a call within 24 hours."</td>
-                    <td>Escalate to care manager; create urgent task</td>
-                </tr>
-                <tr>
-                    <td><strong>Medication Concern</strong></td>
-                    <td>Patient reports side effects or confusion about meds</td>
-                    <td>"I can't adjust your medications, but our care team can review this with your doctor."</td>
-                    <td>Flag for pharmacist/provider review</td>
-                </tr>
-                <tr>
-                    <td><strong>Abuse/Safety Issue</strong></td>
-                    <td>Patient discloses abuse, neglect, or safety concern</td>
-                    <td>"I'm concerned about your safety. I'm connecting you with resources."</td>
-                    <td>Escalate per mandatory reporting rules (state-specific)</td>
-                </tr>
-                <tr>
-                    <td><strong>Patient Frustration</strong></td>
-                    <td>Angry tone, expressing hopelessness, barriers to care</td>
-                    <td>"I hear your frustration. Let's work through this together."</td>
-                    <td>Empathize, identify barriers, offer support</td>
-                </tr>
-            </table>
+#### Distress Detection & Response Matrix
 
-            <h4>Distress Detection Prompt Logic</h4>
-            <pre><code>async def detect_distress(transcript_segment, emotion_score):
+| Scenario | Detection Trigger | Agent Response | Action |
+|----------|-------------------|-----------------|--------|
+| **Acute Medical Emergency** | Chest pain, severe breathing difficulty, stroke signs, severe bleeding | "This requires immediate emergency care. I'm calling 911 now." | Transfer call to 911 or nearest ER |
+| **Mental Health Crisis** | Suicidal ideation, active self-harm, severe confusion | "I'm concerned about your safety. I'm connecting you to a crisis specialist right now." | Transfer to 988 (Suicide & Crisis Lifeline) or local crisis team |
+| **Worsening Symptoms** | "I've been feeling much worse…", new symptoms reported | "Thank you for sharing that. I want our care team to evaluate this. I'm scheduling a call within 24 hours." | Escalate to care manager; create urgent task |
+| **Medication Concern** | Patient reports side effects or confusion about meds | "I can't adjust your medications, but our care team can review this with your doctor." | Flag for pharmacist/provider review |
+| **Abuse/Safety Issue** | Patient discloses abuse, neglect, or safety concern | "I'm concerned about your safety. I'm connecting you with resources." | Escalate per mandatory reporting rules (state-specific) |
+| **Patient Frustration** | Angry tone, expressing hopelessness, barriers to care | "I hear your frustration. Let's work through this together." | Empathize, identify barriers, offer support |
+
+#### Distress Detection Prompt Logic
+
+```python
+async def detect_distress(transcript_segment, emotion_score):
     """
     Monitor for concerning language/emotion during conversation.
     """
@@ -562,36 +389,38 @@ Patient Medical History: {medical_history_summary}</code></pre>
             "much worse", "can't control", "all the time", "spreading"
         ]
     }
-
+    
     # Check for emergency keywords
     for keyword in distress_indicators["emergency_keywords"]:
         if keyword.lower() in transcript_segment.lower():
             return await escalate_to_911()
-
+    
     # Check for mental crisis
     for keyword in distress_indicators["mental_crisis_keywords"]:
         if keyword.lower() in transcript_segment.lower():
             return await transfer_to_crisis_line(call_id)
-
+    
     # Check emotion + wording for distress
     if emotion_score["distress"] > 0.7 and any(
-        word in transcript_segment.lower()
+        word in transcript_segment.lower() 
         for word in distress_indicators["concerning_symptoms"]
     ):
         return await escalate_to_care_manager(
             reason="patient_reported_worsening",
             priority="high"
         )
+    
+    return {"distress_detected": False}
+```
 
-    return {"distress_detected": False}</code></pre>
-        </div>
+### Compliance & Documentation
 
-        <div class="card">
-            <h3>2.3 Compliance & Documentation</h3>
-            <p>Every patient interaction must be logged for compliance and quality assurance.</p>
+Every patient interaction must be logged for compliance and quality assurance.
 
-            <h4>Call Logging Structure</h4>
-            <pre><code">{
+#### Call Logging Structure
+
+```json
+{
   "call_id": "call_20260919_123456",
   "patient_id": "PT_123456",
   "session_timestamp": "2026-09-19T14:35:00Z",
@@ -650,52 +479,30 @@ Patient Medical History: {medical_history_summary}</code></pre>
     "manual_review_required": false
   }
 }
-</code></pre>
-        </div>
+```
 
-        <!-- SECTION 3 -->
-        <h2 id="section-3">3. Action Execution (Tool Calling)</h2>
+---
 
-        <div class="card">
-            <h3>3.1 Tool Architecture</h3>
-            <p>Your agent needs to execute concrete business logic. Here's the design pattern:</p>
+## Action Execution (Tool Calling)
 
-            <h4>Tool Taxonomy</h4>
-            <table>
-                <tr>
-                    <th>Category</th>
-                    <th>Examples</th>
-                    <th>Key Constraint</th>
-                </tr>
-                <tr>
-                    <td><strong>Scheduling</strong></td>
-                    <td>schedule_appointment, schedule_lab_order, cancel_appointment</td>
-                    <td>Always confirm with patient before booking</td>
-                </tr>
-                <tr>
-                    <td><strong>Data Access</strong></td>
-                    <td>get_patient_labs, get_medication_list, get_visit_history</td>
-                    <td>Audit-log all access; patient should consent</td>
-                </tr>
-                <tr>
-                    <td><strong>Escalation</strong></td>
-                    <td>escalate_to_care_manager, escalate_to_pharmacist, escalate_to_physician</td>
-                    <td>Include context; set priority; human approval required</td>
-                </tr>
-                <tr>
-                    <td><strong>Preferences</strong></td>
-                    <td>update_contact_preference, set_do_not_call, opt_out_program</td>
-                    <td>Explicit patient consent; immutable audit trail</td>
-                </tr>
-                <tr>
-                    <td><strong>Enrollment</strong></td>
-                    <td>enroll_in_program, refer_to_resource, connect_to_specialist</td>
-                    <td>Patient education first; voluntary enrollment</td>
-                </tr>
-            </table>
+### Tool Architecture
 
-            <h4>Tool Definition Schema</h4>
-            <pre><code">{
+Your agent needs to execute concrete business logic. Here's the design pattern:
+
+#### Tool Taxonomy
+
+| Category | Examples | Key Constraint |
+|----------|----------|-----------------|
+| **Scheduling** | schedule_appointment, schedule_lab_order, cancel_appointment | Always confirm with patient before booking |
+| **Data Access** | get_patient_labs, get_medication_list, get_visit_history | Audit-log all access; patient should consent |
+| **Escalation** | escalate_to_care_manager, escalate_to_pharmacist, escalate_to_physician | Include context; set priority; human approval required |
+| **Preferences** | update_contact_preference, set_do_not_call, opt_out_program | Explicit patient consent; immutable audit trail |
+| **Enrollment** | enroll_in_program, refer_to_resource, connect_to_specialist | Patient education first; voluntary enrollment |
+
+#### Tool Definition Schema
+
+```json
+{
   "name": "schedule_appointment",
   "description": "Schedule an appointment with a provider or care manager.",
   "input_schema": {
@@ -730,19 +537,21 @@ Patient Medical History: {medical_history_summary}</code></pre>
     "Ensure patient_confirmed = true"
   ]
 }
-</code></pre>
+```
 
-            <h4>Safety Gates for Tool Execution</h4>
-            <pre><code">class ToolExecutor:
+#### Safety Gates for Tool Execution
+
+```python
+class ToolExecutor:
     def __init__(self, audit_logger, compliance_checker):
         self.audit_logger = audit_logger
         self.compliance_checker = compliance_checker
-
+    
     async def execute_tool(self, tool_name, parameters, context):
         """
         Execute a tool with safety gates.
         """
-
+        
         # Gate 1: Check if tool is allowed for this patient
         if await self.compliance_checker.is_tool_blocked(
             patient_id=context["patient_id"],
@@ -753,7 +562,7 @@ Patient Medical History: {medical_history_summary}</code></pre>
                 "reason": "Tool not available for this patient",
                 "message": "I'm unable to complete that action. Let me connect you with our team."
             }
-
+        
         # Gate 2: Validate parameters
         schema = self.get_tool_schema(tool_name)
         validation = self._validate_params(parameters, schema)
@@ -763,25 +572,25 @@ Patient Medical History: {medical_history_summary}</code></pre>
                 "reason": "Invalid parameters",
                 "message": f"I encountered an error processing that request: {validation['error']}"
             }
-
+        
         # Gate 3: Patient consent verification
         if schema["requires_consent"] and not parameters.get("patient_confirmed"):
             return {
                 "status": "requires_confirmation",
                 "message": "I need to confirm this action with you first."
             }
-
+        
         # Gate 4: Check for sensitive operations
         if tool_name in ["update_contact_preference", "opt_out_program"]:
             await self._send_confirmation_sms(
                 patient_id=context["patient_id"],
                 action_summary=f"Confirm: {self._summarize_action(tool_name, parameters)}"
             )
-
+        
         # Gate 5: Execute and log
         try:
             result = await self._execute_backend(tool_name, parameters)
-
+            
             # Log for audit
             await self.audit_logger.log({
                 "timestamp": now(),
@@ -791,9 +600,9 @@ Patient Medical History: {medical_history_summary}</code></pre>
                 "result_status": result["status"],
                 "session_id": context["session_id"]
             })
-
+            
             return result
-
+        
         except Exception as e:
             await self.audit_logger.log_error(
                 patient_id=context["patient_id"],
@@ -805,7 +614,7 @@ Patient Medical History: {medical_history_summary}</code></pre>
                 "status": "error",
                 "message": "I encountered an error. Our team has been notified and will follow up."
             }
-
+    
     def _sanitize_params(self, params):
         """Remove sensitive data before logging."""
         sensitive_fields = ["phone", "ssn", "credit_card"]
@@ -813,30 +622,32 @@ Patient Medical History: {medical_history_summary}</code></pre>
         for field in sensitive_fields:
             if field in sanitized:
                 sanitized[field] = "[REDACTED]"
-        return sanitized</code></pre>
-        </div>
+        return sanitized
+```
 
-        <div class="card">
-            <h3>3.2 PBM Integration (Pharmacy Benefit Manager)</h3>
-            <p>Pharmacy coordination is critical for medication adherence programs.</p>
+### PBM Integration (Pharmacy Benefit Manager)
 
-            <h4>PBM Routing Logic</h4>
-            <pre><code">async def route_to_pbm(patient_id, medication_concern):
+Pharmacy coordination is critical for medication adherence programs.
+
+#### PBM Routing Logic
+
+```python
+async def route_to_pbm(patient_id, medication_concern):
     """
     Detect medication issues and route to appropriate PBM.
     """
-
+    
     # Get patient's PBM from enrollment record
     patient = await db.get_patient(patient_id)
     pbm_id = patient.get("pbm_id")  # e.g., "CVS_Caremark"
-
+    
     if medication_concern["type"] == "missing_refill":
         # Call PBM API to check refill status
         refill_status = await pbm_apis[pbm_id].check_refill_status(
             patient_id=patient["pbm_member_id"],
             medication=medication_concern["medication"]
         )
-
+        
         if refill_status["can_refill"]:
             # Auto-request refill via API
             result = await pbm_apis[pbm_id].request_refill(
@@ -865,7 +676,7 @@ Patient Medical History: {medical_history_summary}</code></pre>
                 "message": "I've sent a request to your pharmacy benefit manager. They'll follow up with you within 24 hours.",
                 "tracking_id": escalation["ticket_id"]
             }
-
+    
     elif medication_concern["type"] == "prior_authorization":
         # Create prior auth request in PBM system
         auth_request = await pbm_apis[pbm_id].create_prior_auth(
@@ -874,7 +685,7 @@ Patient Medical History: {medical_history_summary}</code></pre>
             prescriber_id=medication_concern["prescriber_id"],
             clinical_justification=medication_concern["reason"]
         )
-
+        
         return {
             "status": "prior_auth_submitted",
             "pbm": pbm_id,
@@ -882,20 +693,22 @@ Patient Medical History: {medical_history_summary}</code></pre>
             "tracking_id": auth_request["request_id"],
             "expected_turnaround": "1-2 business days"
         }
+    
+    return {"status": "no_action_needed"}
+```
 
-    return {"status": "no_action_needed"}</code></pre>
-        </div>
+### Care Manager Escalation
 
-        <div class="card">
-            <h3>3.3 Care Manager Escalation</h3>
-            <p>High-touch interventions require human coordination.</p>
+High-touch interventions require human coordination.
 
-            <h4>Escalation Decision Tree</h4>
-            <pre><code">def should_escalate_to_care_manager(context):
+#### Escalation Decision Tree
+
+```python
+def should_escalate_to_care_manager(context):
     """
     Determine if conversation warrants care manager follow-up.
     """
-
+    
     escalation_triggers = {
         "medication_non_adherence": {
             "condition": context["patient"].missed_doses > 2,
@@ -903,7 +716,7 @@ Patient Medical History: {medical_history_summary}</code></pre>
             "action": "schedule_medication_review"
         },
         "barriers_to_care": {
-            "condition": any(keyword in context["transcript"]
+            "condition": any(keyword in context["transcript"] 
                            for keyword in ["cost", "transportation", "insurance", "can't afford"]),
             "priority": "high",
             "action": "assess_social_determinants"
@@ -929,7 +742,7 @@ Patient Medical History: {medical_history_summary}</code></pre>
             "action": "address_barriers"
         }
     }
-
+    
     triggered_escalations = []
     for trigger_name, trigger_config in escalation_triggers.items():
         if trigger_config["condition"]:
@@ -938,7 +751,7 @@ Patient Medical History: {medical_history_summary}</code></pre>
                 "priority": trigger_config["priority"],
                 "action": trigger_config["action"]
             })
-
+    
     return {
         "should_escalate": len(triggered_escalations) > 0,
         "escalations": triggered_escalations,
@@ -950,7 +763,7 @@ async def create_care_manager_task(patient_id, escalation_details):
     """
     Create an actionable task for care manager.
     """
-
+    
     task = {
         "patient_id": patient_id,
         "created_at": now(),
@@ -971,9 +784,9 @@ async def create_care_manager_task(patient_id, escalation_details):
         "escalation_source": "voice_agent",
         "call_id": escalation_details["call_id"]
     }
-
+    
     task_id = await db.create_care_manager_task(task)
-
+    
     # Notify care manager
     await notify_care_manager(
         care_manager_id=escalation_details["assigned_care_manager"],
@@ -981,52 +794,56 @@ async def create_care_manager_task(patient_id, escalation_details):
         patient_id=patient_id,
         priority=escalation_details["priority"]
     )
+    
+    return task_id
+```
 
-    return task_id</code></pre>
-        </div>
+### Do-Not-Call (DNC) & Preference Management
 
-        <div class="card">
-            <h3>3.4 Do-Not-Call (DNC) & Preference Management</h3>
-            <p>Respect patient preferences and regulatory compliance (TCPA).</p>
+Respect patient preferences and regulatory compliance (TCPA).
 
-            <h4>DNC Database Schema</h4>
-            <pre><code">{
+#### DNC Database Schema
+
+```json
+{
   "dnc_records": [
     {
       "patient_id": "PT_123456",
       "phone_number": "+1-555-0123",
-      "dnc_status": "active",  # active, expires_on_date, permanently_requested
+      "dnc_status": "active",
       "reason": "patient_requested_on_2026-09-15",
-      "expires_on": "2026-12-15",  # 90-day default, or null for permanent
+      "expires_on": "2026-12-15",
       "created_at": "2026-09-15T10:30:00Z",
       "created_by": "voice_agent_session_123",
       "overrides": {
-        "allow_urgent_medical": true,  # Allow for acute issues
-        "allow_appointment_reminders": true  # Allow appt confirmations
+        "allow_urgent_medical": true,
+        "allow_appointment_reminders": true
       }
     }
   ]
 }
-</code></pre>
+```
 
-            <h4>DNC Check & Respect Logic</h4>
-            <pre><code">async def check_dnc_before_call(patient_id, call_type):
+#### DNC Check & Respect Logic
+
+```python
+async def check_dnc_before_call(patient_id, call_type):
     """
     Verify DNC status before initiating outbound call.
     """
-
+    
     dnc_record = await db.get_dnc_status(patient_id)
-
+    
     if dnc_record is None:
         return {"allowed": True}
-
+    
     if dnc_record["dnc_status"] == "permanently_requested":
         return {
             "allowed": False,
             "reason": "Patient has permanently requested no contact",
             "log_as_blocked": True
         }
-
+    
     if dnc_record["dnc_status"] == "expires_on_date":
         if now() < dnc_record["expires_on"]:
             # DNC still active
@@ -1045,14 +862,14 @@ async def create_care_manager_task(patient_id, escalation_details):
         else:
             # DNC expired
             return {"allowed": True}
-
+    
     return {"allowed": True}
 
 async def handle_dnc_request(patient_id, phone_number):
     """
     Patient requests to be added to DNC list.
     """
-
+    
     # Create DNC record
     dnc_record = {
         "patient_id": patient_id,
@@ -1060,15 +877,15 @@ async def handle_dnc_request(patient_id, phone_number):
         "dnc_status": "active",
         "reason": "patient_requested_via_call",
         "created_at": now(),
-        "expires_on": now() + timedelta(days=90),  # 90-day default per TCPA
+        "expires_on": now() + timedelta(days=90),
         "overrides": {
             "allow_urgent_medical": True,
             "allow_appointment_reminders": True
         }
     }
-
+    
     await db.add_dnc_record(dnc_record)
-
+    
     # Log for compliance
     await audit_logger.log({
         "event_type": "dnc_request",
@@ -1076,19 +893,20 @@ async def handle_dnc_request(patient_id, phone_number):
         "timestamp": now(),
         "source": "voice_agent"
     })
-
+    
     return {
         "status": "success",
         "message": "I've added your number to our do-not-call list. You won't receive outbound calls from us, though we may still contact you about urgent medical issues or appointment confirmations."
-    }</code></pre>
-        </div>
+    }
+```
 
-        <!-- SECTION 4 -->
-        <h2 id="section-4">4. End-to-End Integration & Compliance</h2>
+---
 
-        <div class="card">
-            <h3>4.1 Full Call Flow Diagram</h3>
-            <div class="diagram">
+## End-to-End Integration & Compliance
+
+### Full Call Flow Diagram
+
+```
 ┌─────────────────────────────────────────────────────────────┐
 │                  ML MODEL PREDICTION                         │
 │         (Flags high-risk patient + top 5 drivers)           │
@@ -1130,70 +948,50 @@ async def handle_dnc_request(patient_id, phone_number):
 │  • Create care manager tasks if needed                      │
 │  • Update patient profile + compliance log                  │
 └─────────────────────────────────────────────────────────────┘
-            </div>
-        </div>
+```
 
-        <div class="card">
-            <h3>4.2 HIPAA & Compliance Checklist</h3>
-            <div class="warning">
-                <strong>⚠️ Legal Disclaimer:</strong> This guide is for architectural reference only. Consult with legal and compliance teams before deployment. HIPAA violations carry significant penalties.
-            </div>
+### HIPAA & Compliance Checklist
 
-            <h4>Key Compliance Areas</h4>
-            <ul>
-                <li><strong>Patient Authorization:</strong> Maintain documented consent for outbound calls (recorded affirmative consent, not pre-recorded messages)</li>
-                <li><strong>Telephone Consumer Protection Act (TCPA):</strong>
-                    <ul>
-                        <li>Respect Do-Not-Call registry + patient preferences</li>
-                        <li>Identify agent as automated when applicable</li>
-                        <li>Provide easy opt-out mechanism</li>
-                    </ul>
-                </li>
-                <li><strong>HIPAA Encryption:</strong>
-                    <ul>
-                        <li>All data in transit: TLS 1.2+</li>
-                        <li>Data at rest: AES-256 encryption</li>
-                        <li>Audio calls: HIPAA-compliant carriers (e.g., Twilio, Vonage with BAA)</li>
-                    </ul>
-                </li>
-                <li><strong>Audit Logging:</strong>
-                    <ul>
-                        <li>Log all PHI access with user, timestamp, action</li>
-                        <li>Maintain logs for 6+ years</li>
-                        <li>Implement tamper-evident storage (append-only logs)</li>
-                    </ul>
-                </li>
-                <li><strong>Data Minimization:</strong>
-                    <ul>
-                        <li>Only retrieve/store PHI strictly necessary for the call</li>
-                        <li>Avoid storing full transcripts if not required; store summaries instead</li>
-                        <li>Delete data after retention period expires</li>
-                    </ul>
-                </li>
-                <li><strong>Patient Rights:</strong>
-                    <ul>
-                        <li>Provide access to call recordings/transcripts upon request</li>
-                        <li>Allow patient to correct health information</li>
-                        <li>Honor patient opt-out (DNC) immediately</li>
-                    </ul>
-                </li>
-                <li><strong>Breach Notification:</strong>
-                    <ul>
-                        <li>If unauthorized access to PHI occurs, notify patient within 60 days</li>
-                        <li>Report to HHS if affecting 500+ patients</li>
-                    </ul>
-                </li>
-            </ul>
+> ⚠️ **Legal Disclaimer:** This guide is for architectural reference only. Consult with legal and compliance teams before deployment. HIPAA violations carry significant penalties.
 
-            <h4>Compliance Monitoring Code</h4>
-            <pre><code">class ComplianceMonitor:
+#### Key Compliance Areas
+
+- **Patient Authorization:** Maintain documented consent for outbound calls (recorded affirmative consent, not pre-recorded messages)
+- **Telephone Consumer Protection Act (TCPA):**
+  - Respect Do-Not-Call registry + patient preferences
+  - Identify agent as automated when applicable
+  - Provide easy opt-out mechanism
+- **HIPAA Encryption:**
+  - All data in transit: TLS 1.2+
+  - Data at rest: AES-256 encryption
+  - Audio calls: HIPAA-compliant carriers (e.g., Twilio, Vonage with BAA)
+- **Audit Logging:**
+  - Log all PHI access with user, timestamp, action
+  - Maintain logs for 6+ years
+  - Implement tamper-evident storage (append-only logs)
+- **Data Minimization:**
+  - Only retrieve/store PHI strictly necessary for the call
+  - Avoid storing full transcripts if not required; store summaries instead
+  - Delete data after retention period expires
+- **Patient Rights:**
+  - Provide access to call recordings/transcripts upon request
+  - Allow patient to correct health information
+  - Honor patient opt-out (DNC) immediately
+- **Breach Notification:**
+  - If unauthorized access to PHI occurs, notify patient within 60 days
+  - Report to HHS if affecting 500+ patients
+
+#### Compliance Monitoring Code
+
+```python
+class ComplianceMonitor:
     def __init__(self, audit_db, alerting_service):
         self.audit_db = audit_db
         self.alerting_service = alerting_service
-
+    
     async def monitor_daily(self):
         """Run daily compliance checks."""
-
+        
         checks = {
             "dnc_list_updated": await self._check_dnc_list_currency(),
             "encryption_enabled": await self._verify_encryption_status(),
@@ -1201,26 +999,26 @@ async def handle_dnc_request(patient_id, phone_number):
             "no_unconsented_calls": await self._check_call_consent_records(),
             "no_phi_in_logs": await self._scan_logs_for_exposed_phi()
         }
-
+        
         failed_checks = [k for k, v in checks.items() if not v["passed"]]
-
+        
         if failed_checks:
             await self.alerting_service.alert(
                 severity="critical",
                 subject=f"Compliance Check Failed: {', '.join(failed_checks)}",
                 details=checks
             )
-
+        
         # Log compliance check results
         await self.audit_db.log_compliance_check(checks, timestamp=now())
-
+    
     async def _check_dnc_list_currency(self):
         """Verify DNC list is updated from FCC registry."""
         last_update = await self.audit_db.get_dnc_last_update()
         if (now() - last_update).days > 7:
             return {"passed": False, "reason": "DNC list not updated in 7+ days"}
         return {"passed": True}
-
+    
     async def _verify_encryption_status(self):
         """Check all data connections use TLS 1.2+."""
         connections = await self._get_active_connections()
@@ -1228,89 +1026,42 @@ async def handle_dnc_request(patient_id, phone_number):
             if conn["tls_version"] < "1.2":
                 return {"passed": False, "connection": conn["name"]}
         return {"passed": True}
-
+    
     async def _verify_audit_log_integrity(self):
         """Verify logs have not been tampered with."""
         # Check for gaps, overwrites, deletions
         integrity = await self.audit_db.verify_integrity()
-        return {"passed": integrity["valid"]}</code></pre>
-        </div>
+        return {"passed": integrity["valid"]}
+```
 
-        <div class="card">
-            <h3>4.3 Deployment Architecture</h3>
-            <p>Recommended stack for production:</p>
-            <table>
-                <tr>
-                    <th>Component</th>
-                    <th>Technology</th>
-                    <th>Rationale</th>
-                </tr>
-                <tr>
-                    <td><strong>Voice Infrastructure</strong></td>
-                    <td>Twilio + Telnyx (with BAA)</td>
-                    <td>HIPAA-compliant, redundant, high availability</td>
-                </tr>
-                <tr>
-                    <td><strong>ASR (Speech-to-Text)</strong></td>
-                    <td>Deepgram / Google Cloud Speech + on-prem fallback</td>
-                    <td>Low latency, handles medical terminology</td>
-                </tr>
-                <tr>
-                    <td><strong>TTS (Text-to-Speech)</strong></td>
-                    <td>ElevenLabs (HIPAA compliant) or Azure Cognitive Services</td>
-                    <td>Natural voice, streaming support</td>
-                </tr>
-                <tr>
-                    <td><strong>LLM Agent</strong></td>
-                    <td>Claude API (with system prompts) + fine-tuned fallback</td>
-                    <td>High reasoning, cost-effective, safety-oriented</td>
-                </tr>
-                <tr>
-                    <td><strong>Vector DB (RAG)</strong></td>
-                    <td>Pinecone / Weaviate (self-hosted option for data control)</td>
-                    <td>Fast retrieval, metadata filtering, compliance</td>
-                </tr>
-                <tr>
-                    <td><strong>Caching Layer</strong></td>
-                    <td>Redis (self-hosted + replicated)</td>
-                    <td>Sub-100ms latency, pre-loaded context</td>
-                </tr>
-                <tr>
-                    <td><strong>Database</strong></td>
-                    <td>PostgreSQL (encrypted at rest) + warm standby</td>
-                    <td>ACID compliance, audit logging, reliability</td>
-                </tr>
-                <tr>
-                    <td><strong>API Gateway</strong></td>
-                    <td>Kong / AWS API Gateway</td>
-                    <td>Rate limiting, auth, logging</td>
-                </tr>
-                <tr>
-                    <td><strong>Monitoring & Alerts</strong></td>
-                    <td>Datadog / New Relic + PagerDuty</td>
-                    <td>Real-time system health, incident response</td>
-                </tr>
-            </table>
-        </div>
+### Deployment Architecture
 
-        <div class="card">
-            <h3>4.4 Next Steps & Roadmap</h3>
-            <ol>
-                <li><strong>Phase 1 (MVP):</strong> Build core voice agent with single-threaded conversation, basic escalation to care managers</li>
-                <li><strong>Phase 2:</strong> Add RAG system; integrate with electronic health records (EHR) for patient context</li>
-                <li><strong>Phase 3:</strong> Multi-turn conversation optimization; distress detection; tool execution for appointments</li>
-                <li><strong>Phase 4:</strong> PBM integrations; full compliance audit; pilot with subset of patients</li>
-                <li><strong>Phase 5:</strong> Scale; add specialist routing; monitor real-world outcomes</li>
-            </ol>
+Recommended stack for production:
 
-            <div class="success">
-                <strong>✓ You now have:</strong> A production-ready architecture for a HIPAA-compliant healthcare voice agent with safety guardrails, RAG integration, and business logic automation.
-            </div>
-        </div>
+| Component | Technology | Rationale |
+|-----------|-----------|-----------|
+| **Voice Infrastructure** | Twilio + Telnyx (with BAA) | HIPAA-compliant, redundant, high availability |
+| **ASR (Speech-to-Text)** | Deepgram / Google Cloud Speech + on-prem fallback | Low latency, handles medical terminology |
+| **TTS (Text-to-Speech)** | ElevenLabs (HIPAA compliant) or Azure Cognitive Services | Natural voice, streaming support |
+| **LLM Agent** | Claude API (with system prompts) + fine-tuned fallback | High reasoning, cost-effective, safety-oriented |
+| **Vector DB (RAG)** | Pinecone / Weaviate (self-hosted option for data control) | Fast retrieval, metadata filtering, compliance |
+| **Caching Layer** | Redis (self-hosted + replicated) | Sub-100ms latency, pre-loaded context |
+| **Database** | PostgreSQL (encrypted at rest) + warm standby | ACID compliance, audit logging, reliability |
+| **API Gateway** | Kong / AWS API Gateway | Rate limiting, auth, logging |
+| **Monitoring & Alerts** | Datadog / New Relic + PagerDuty | Real-time system health, incident response |
 
-        <p style="margin-top: 3em; text-align: center; color: #666; font-size: 0.9em;">
-            This guide covers the key technical and compliance areas for your HCM voice agent. Use it as a blueprint for your implementation.
-        </p>
-    </div>
-</body>
-</html>
+### Next Steps & Roadmap
+
+1. **Phase 1 (MVP):** Build core voice agent with single-threaded conversation, basic escalation to care managers
+2. **Phase 2:** Add RAG system; integrate with electronic health records (EHR) for patient context
+3. **Phase 3:** Multi-turn conversation optimization; distress detection; tool execution for appointments
+4. **Phase 4:** PBM integrations; full compliance audit; pilot with subset of patients
+5. **Phase 5:** Scale; add specialist routing; monitor real-world outcomes
+
+---
+
+## Summary
+
+✓ **You now have:** A production-ready architecture for a HIPAA-compliant healthcare voice agent with safety guardrails, RAG integration, and business logic automation.
+
+Use this guide as a blueprint for your implementation. Consult with your compliance and legal teams before deploying to production.
