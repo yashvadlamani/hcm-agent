@@ -1,12 +1,12 @@
-anthropic==0.39.0
-python-dotenv==1.0.0
-pydantic==2.7.4
+anthropic
+python-dotenv
+pydantic
 
 # Voice infrastructure
-twilio==9.2.3
-deepgram-sdk==3.5.0
+vonage
+deepgram-sdk
 elevenlabs
 
 # Web server for webhook handling
-flask==3.0.0
-python-multipart==0.0.6
+flask
+python-multipart

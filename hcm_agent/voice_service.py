@@ -5,8 +5,8 @@ import logging
 from typing import Optional
 from twilio.rest import Client
 from twilio.twiml.voice_response import VoiceResponse
-from deepgram import DeepgramClient, PrerecordedOptions
-from elevenlabs import ElevenLabs, VoiceSettings
+from deepgram import DeepgramClient
+from elevenlabs import ElevenLabs
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +51,7 @@ class TwilioVoiceService:
                 to=to_number,
                 from_=self.phone_number,
                 url=webhook_url,
-                method="POST",
-                record=True,  # Record all calls for compliance
-                record_track="both"  # Record both inbound and outbound
+                method="POST"
             )
 
             logger.info(f"Call initiated to {to_number}. Call SID: {call.sid}")
@@ -73,7 +71,7 @@ class TwilioVoiceService:
         response.say(greeting, voice="alice")
         response.gather(
             num_digits=1,
-            action="",  # Will be replaced with actual webhook
+            action="",
             method="POST",
             timeout=10
         )
@@ -111,7 +109,7 @@ class DeepgramASRService:
         self.client = DeepgramClient(api_key=self.api_key)
         logger.info("Deepgram ASR service initialized")
 
-    async def transcribe_audio(self, audio_data: bytes, mimetype: str = "audio/wav") -> str:
+    def transcribe_audio(self, audio_data: bytes, mimetype: str = "audio/wav") -> str:
         """
         Transcribe audio to text.
 
@@ -123,22 +121,20 @@ class DeepgramASRService:
             Transcribed text
         """
         try:
-            options = PrerecordedOptions(
-                model="nova-2",
-                language="en",
-                punctuate=True,
-                paragraphs=True
-            )
-
-            # Note: This is a simplified example. In production, you'd use streaming
-            response = await self.client.transcription.prerecorded(
+            # Use the Deepgram prerecorded transcription API
+            response = self.client.listen.prerecorded.v("1").transcribe_file(
                 {"buffer": audio_data, "mimetype": mimetype},
-                options
+                {
+                    "model": "nova-2",
+                    "language": "en",
+                    "punctuate": True,
+                }
             )
 
-            if response and response.get("results"):
-                transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-                return transcript
+            if response and hasattr(response, 'results'):
+                if response.results.channels and len(response.results.channels) > 0:
+                    transcript = response.results.channels[0].alternatives[0].transcript
+                    return transcript
 
             return ""
 
@@ -186,13 +182,6 @@ class ElevenLabsTTSService:
             logger.error(f"Speech synthesis failed: {e}")
             return b""
 
-    def get_voice_settings(self) -> VoiceSettings:
-        """Get current voice settings."""
-        return VoiceSettings(
-            stability=0.5,
-            similarity_boost=0.75
-        )
-
 
 class VoiceCallManager:
     """
@@ -226,12 +215,11 @@ class VoiceCallManager:
             "status": "initiated"
         }
 
-        # Initialize agent for this call
         self.agent.initialize_call(patient_context)
 
         return call_sid
 
-    async def process_patient_audio(self, call_sid: str, audio_data: bytes) -> str:
+    def process_patient_audio(self, call_sid: str, audio_data: bytes) -> str:
         """
         Process patient audio: transcribe → get agent response → synthesize.
 
@@ -244,7 +232,7 @@ class VoiceCallManager:
 
         try:
             # Step 1: Transcribe patient audio
-            patient_text = await self.deepgram.transcribe_audio(audio_data)
+            patient_text = self.deepgram.transcribe_audio(audio_data)
             logger.info(f"Patient said: {patient_text}")
 
             # Step 2: Get agent response
