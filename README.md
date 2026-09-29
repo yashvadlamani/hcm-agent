@@ -94,35 +94,9 @@ Post-Call Execution (tools, escalations, logging)
 
 ## Getting Started
 
-### Prerequisites
-- Python 3.9+
-- PostgreSQL 13+
-- Redis 6.0+
-- Twilio/Vonage account with HIPAA BAA
-- API keys: Claude, Deepgram, Pinecone
+**[→ Setup and test-call guide →](./GETTING_STARTED.md)**
 
-### Installation
-```bash
-# Clone the repository
-git clone https://github.com/yashvadlamani/hcm-agent.git
-cd hcm-agent
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your API keys and HIPAA settings
-```
-
-### Running the Agent
-```bash
-# Start the voice server
-python -m hcm_agent.voice_server
-
-# Queue an ML flag for processing
-python -m hcm_agent.cli queue_patient --patient_id PT_123456 --risk_score 0.87
-```
+The guide covers what works today, how a call flows through the app, setting up Claude, Twilio and ngrok, and placing your first test call.
 
 ## Compliance & Security
 

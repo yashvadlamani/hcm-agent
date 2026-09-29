@@ -12,9 +12,14 @@ from urllib.parse import urlencode
 from dotenv import load_dotenv
 from twilio.rest import Client
 
-from simple_call import to_e164
-
 load_dotenv()
+
+
+def to_e164(phone: str) -> str:
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) == 10:
+        digits = "1" + digits
+    return "+" + digits
 
 
 def main():

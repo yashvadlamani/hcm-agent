@@ -1,13 +1,4 @@
 anthropic
 python-dotenv
-pydantic
-
-# Voice infrastructure
 twilio
-requests
-deepgram-sdk
-elevenlabs
-
-# Web server for webhook handling
 flask
-python-multipart
