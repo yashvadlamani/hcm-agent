@@ -3,6 +3,7 @@ python-dotenv
 pydantic
 
 # Voice infrastructure
+twilio
 requests
 deepgram-sdk
 elevenlabs

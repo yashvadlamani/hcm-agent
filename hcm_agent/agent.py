@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from typing import Optional, Tuple
 from anthropic import Anthropic
 
@@ -65,15 +66,23 @@ class HCMVoiceAgent:
         })
 
         try:
-            # Call Claude API
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=500,
+            # Low effort keeps each turn fast enough for a live phone call.
+            response = self.client.beta.messages.create(
+                model=os.getenv("ANTHROPIC_MODEL", "claude-opus-5"),
+                max_tokens=4096,
                 system=system_prompt,
-                messages=self.conversation_history
+                messages=self.conversation_history,
+                output_config={"effort": "low"},
+                betas=["server-side-fallback-2026-07-01"],
+                fallbacks="default",
             )
 
-            agent_response = response.content[0].text
+            if response.stop_reason == "refusal":
+                agent_response = "I'm not able to help with that on this call, but your care manager can. Is there anything else I can help with today?"
+            else:
+                agent_response = next(
+                    (block.text for block in response.content if block.type == "text"), ""
+                ).strip() or "Sorry, could you say that again?"
 
             # Check for guardrail violations in agent response
             violation, violation_detail = self.guardrails.check_agent_response(agent_response)
@@ -82,7 +91,7 @@ class HCMVoiceAgent:
                 logger.warning(f"GUARDRAIL VIOLATION: {violation.value} - {violation_detail}")
 
                 # If it's a medical advice/diagnosis violation, regenerate
-                if violation in [GuardrailViolation.MEDICAL_ADVICE, GuardrailViolation.MEDICAL_DIAGNOSIS]:
+                if violation in [GuardrailViolation.MEDICAL_ADVICE, GuardrailViolation.MEDICAL_DIAGNOSIS, GuardrailViolation.PRESCRIPTION_CHANGE]:
                     logger.info("Regenerating response due to guardrail violation...")
                     # Remove the last assistant message if it exists
                     agent_response = self._safe_fallback_response(patient_message, violation)

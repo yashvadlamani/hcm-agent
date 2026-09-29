@@ -8,6 +8,13 @@ from twilio.twiml.voice_response import VoiceResponse
 
 load_dotenv()
 
+def to_e164(phone: str) -> str:
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) == 10:
+        digits = "1" + digits
+    return "+" + digits
+
+
 def make_simple_call(to_number: str, patient_name: str = "Test Patient"):
     """Make a simple call with basic TwiML (no webhooks needed)."""
 
@@ -20,6 +27,8 @@ def make_simple_call(to_number: str, patient_name: str = "Test Patient"):
         return
 
     client = Client(account_sid, auth_token)
+    to_number = to_e164(to_number)
+    from_number = to_e164(from_number)
 
     try:
         print(f"\n📞 Making test call...")
@@ -29,7 +38,7 @@ def make_simple_call(to_number: str, patient_name: str = "Test Patient"):
 
         # Create a simple TwiML response
         response = VoiceResponse()
-        response.say(f"Hello {patient_name}, this is a test call from the HCM Voice Agent. Thank you for answering. You can now hang up.", voice="alice")
+        response.say(f"Hi {patient_name}, this is Guppy, a virtual assistant from your health insurance care team. I'm calling to check in on how you're doing with your diabetes management. This is a test call, so you can hang up now. Goodbye!", voice="alice")
 
         # Make the call with TwiML (no webhook URL needed)
         call = client.calls.create(
