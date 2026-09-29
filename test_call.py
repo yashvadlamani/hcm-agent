@@ -36,7 +36,7 @@ def demo_call():
 
     # Predefined conversation
     conversation = [
-        "Hi Sarah, I'm calling to check in on how you're doing with your diabetes management.",
+        "Hi Sarah, this is Guppy, a virtual assistant from your health insurance care team. I'm calling to check in on how you're doing with your diabetes management.",
         "Well, I've been pretty stressed lately. My sugars have been all over the place.",
         "I understand stress can definitely affect your blood sugar. Have you been taking your medications as prescribed?",
         "I haven't been as consistent as I should be. I've just been feeling overwhelmed.",
@@ -51,9 +51,9 @@ def demo_call():
     # Run predefined conversation
     for i, message in enumerate(conversation):
         if i % 2 == 0:
-            print(f"🗣️  Patient: {message}")
+            print(f"🤖 Agent: {message}")
         else:
-            print(f"🤖 Agent: {message}\n")
+            print(f"🗣️  Patient: {message}\n")
 
     # End call
     return voice.end_call()
