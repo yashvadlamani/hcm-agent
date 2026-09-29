@@ -1,10 +1,24 @@
 # HCM-Agent: Healthcare Voice Outreach Agent
 
-A HIPAA-compliant, AI-powered voice outreach system designed to engage high-risk patients with personalized healthcare guidance, powered by an ML model that identifies at-risk individuals and flags key health drivers.
+An AI-powered voice outreach system designed to engage high-risk patients with personalized healthcare guidance, powered by an ML model that identifies at-risk individuals and flags key health drivers.
+
+## What it does today
+
+Meet **Guppy**, a virtual assistant that calls patients on behalf of their health insurance care team. The current prototype can:
+
+- 📞 **Hold a live phone conversation.** Guppy calls a patient via Twilio, greets them, listens, and responds naturally, turn by turn.
+- 🧠 **Generate replies with Claude** (`claude-opus-5`) based on the patient's name and risk drivers.
+- 🛡️ **Enforce safety guardrails.** Guppy never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
+- 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
+- 💬 **Run without a phone.** Text-only test modes let you chat with Guppy or check the guardrails from the terminal.
+
+**[→ Getting Started: setup and your first test call →](./GETTING_STARTED.md)**
+
+> ⚠️ This is a development prototype. It is **not yet HIPAA-compliant** and must not be used with real patient data. The capabilities below describe the target design.
 
 ## Overview
 
-**HCM-Agent** is a production-grade system that:
+**HCM-Agent** is designed to be a production-grade system that:
 
 - 🎯 **Triggers on ML Predictions:** Flags high-risk diabetes patients with their top 5 health drivers
 - 🗣️ **Conducts Real-Time Voice Conversations:** Uses streaming ASR/TTS for natural, low-latency interactions
