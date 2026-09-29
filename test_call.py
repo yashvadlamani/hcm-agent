@@ -36,7 +36,7 @@ def demo_call():
 
     # Predefined conversation
     conversation = [
-        "Hi Sarah, this is Guppy, a virtual assistant from your health insurance care team. I'm calling to check in on how you're doing with your diabetes management.",
+        "Hi Sarah, this is Clara, a virtual assistant from your health insurance care team. I'm calling to check in on how you're doing with your diabetes management.",
         "Well, I've been pretty stressed lately. My sugars have been all over the place.",
         "I understand stress can definitely affect your blood sugar. Have you been taking your medications as prescribed?",
         "I haven't been as consistent as I should be. I've just been feeling overwhelmed.",

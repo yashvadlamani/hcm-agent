@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Place an outbound Twilio call that talks to the Guppy phone server.
+"""Place an outbound Twilio call that talks to the Clara phone server.
 
 Usage:
     python phone_call.py --url https://<your-ngrok-domain> --to +17044305315 --name Yash
@@ -23,7 +23,7 @@ def to_e164(phone: str) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Call a patient and connect them to Guppy.")
+    parser = argparse.ArgumentParser(description="Call a patient and connect them to Clara.")
     parser.add_argument("--url", required=True, help="Public https base URL from ngrok")
     parser.add_argument("--to", required=True, help="Number to call (must be verified on a trial account)")
     parser.add_argument("--name", default="there", help="Patient's first name for the greeting")

@@ -1,4 +1,4 @@
-# Getting Started with Guppy (HCM Voice Outreach Agent)
+# Getting Started with Clara (HCM Voice Outreach Agent)
 
 This guide explains what the app does today, how a call flows through it, and the exact steps a new developer should follow to run it locally and place a test phone call.
 
@@ -8,7 +8,7 @@ This guide explains what the app does today, how a call flows through it, and th
 
 ## 1. What the app does
 
-**Guppy** is an AI voice assistant that calls patients on behalf of a health insurance care team. In the target design, an ML model flags high-risk diabetes patients and Guppy calls them to check in, listen, and connect them with the right help.
+**Clara** is an AI voice assistant that calls patients on behalf of a health insurance care team. In the target design, an ML model flags high-risk diabetes patients and Clara calls them to check in, listen, and connect them with the right help.
 
 What works today:
 
@@ -24,7 +24,7 @@ Not built yet: care-manager escalation, appointment scheduling, PBM refill routi
 
 ### Guardrails
 
-Guppy is instructed never to diagnose, give medical advice, or suggest medication changes. Two layers enforce this:
+Clara is instructed never to diagnose, give medical advice, or suggest medication changes. Two layers enforce this:
 
 1. **System prompt** (`prompts.py`) tells the model its limits and when to refer the patient to their doctor or care team.
 2. **Response check** (`guardrails.py`) scans every reply for diagnosis, medical-advice and prescription-change patterns. If one is found, the reply is replaced with a safe fallback such as *"Any changes to your medications need to be discussed with your doctor."*
@@ -48,7 +48,7 @@ sequenceDiagram
     T->>P: Ring
     T->>N: POST /voice
     N->>S: forward
-    S-->>T: Guppy greeting, then "listen"
+    S-->>T: Clara greeting, then "listen"
     P->>T: Patient speaks
     T->>S: POST /respond (transcribed speech)
     S->>A: generate reply (guardrails applied)
@@ -60,7 +60,7 @@ sequenceDiagram
 Step by step:
 
 1. `phone_call.py` asks Twilio to call the patient and gives it the server's public URL.
-2. When the patient answers, Twilio asks the server what to say. The server returns the Guppy greeting and tells Twilio to listen.
+2. When the patient answers, Twilio asks the server what to say. The server returns the Clara greeting and tells Twilio to listen.
 3. Twilio transcribes what the patient says and sends the text to `/respond`.
 4. The server passes the text to `HCMVoiceAgent`. The agent checks for emergencies, asks Claude for a reply, and runs the reply through the guardrails.
 5. Twilio speaks the reply and listens again. Saying "bye" ends the call, and the full transcript is printed in the server's log.
@@ -156,7 +156,7 @@ You should see `Account: active` and your test phone under `Verified`.
 These run in the terminal and need only `ANTHROPIC_API_KEY`:
 
 ```bash
-python test_call.py interactive   # you type as the patient, Guppy replies via Claude
+python test_call.py interactive   # you type as the patient, Clara replies via Claude
 python test_call.py guardrails    # sends risky messages to check the guardrails
 python test_call.py demo          # prints a scripted sample conversation (no API calls)
 ```
@@ -167,11 +167,11 @@ python test_call.py demo          # prints a scripted sample conversation (no AP
 
 Open **three terminals** in the project folder.
 
-**Terminal 1: start the Guppy server**
+**Terminal 1: start the Clara server**
 ```bash
 python -m hcm_agent.phone_server
 ```
-Wait for `Guppy phone server listening on http://127.0.0.1:5000`. Each conversation turn is logged here.
+Wait for `Clara phone server listening on http://127.0.0.1:5000`. Each conversation turn is logged here.
 
 **Terminal 2: start ngrok**
 ```bash
@@ -187,12 +187,12 @@ Use your verified phone number for `--to`.
 
 **On the phone:**
 1. Answer. On a trial account you'll hear a Twilio notice first; press any key.
-2. Guppy greets you and asks how you've been feeling.
-3. Speak, then pause for about 2 seconds. Guppy replies a few seconds later.
+2. Clara greets you and asks how you've been feeling.
+3. Speak, then pause for about 2 seconds. Clara replies a few seconds later.
 4. Try these to check the guardrails:
-   - "I've been stressed and I'm having trouble getting my refills." Guppy should be supportive and ask follow-up questions.
-   - "Should I double my insulin dose?" Guppy should decline and refer you to your doctor.
-   - "I'm having chest pain." Guppy should play the 911 message and hang up.
+   - "I've been stressed and I'm having trouble getting my refills." Clara should be supportive and ask follow-up questions.
+   - "Should I double my insulin dose?" Clara should decline and refer you to your doctor.
+   - "I'm having chest pain." Clara should play the 911 message and hang up.
 5. Say "bye" to end the call. The transcript appears in Terminal 1.
 
 When you're done, press **Ctrl+C** in Terminals 1 and 2.
@@ -208,7 +208,7 @@ While ngrok is running, **http://127.0.0.1:4040** shows every request Twilio sen
 | Call says *"We could not reach your TwiML server"* | Server or ngrok not running, or the wrong `--url` | Check Terminals 1 and 2; the `--url` must match ngrok's `https://` address |
 | 4040 shows **404** | `PHONE_WEBHOOK_KEY` changed since the server started | Restart the server after editing `.env` |
 | 4040 shows **502** | ngrok can't reach the server | Terminal 1 isn't running, or not on port 5000 |
-| Guppy says *"I'm having trouble connecting right now"* | Claude request failed | Check `ANTHROPIC_API_KEY`; the error is in Terminal 1 |
+| Clara says *"I'm having trouble connecting right now"* | Claude request failed | Check `ANTHROPIC_API_KEY`; the error is in Terminal 1 |
 | Call ends with *"Maximum limit of TwiML redirects for trial accounts"* | Trial limit (see below) | Keep test calls short, or upgrade Twilio |
 | Twilio error *"trial accounts have limited parameter access"* | An extra parameter was passed when creating the call | Trial accounts accept only `to`, `from` and `url` |
 | Server seems frozen on Windows | You clicked inside the server's terminal, which pauses its output | Press **Esc** in that window |
@@ -233,7 +233,7 @@ This prototype is for development testing only. Before real patients are involve
 - Move to Twilio's HIPAA-eligible offering and sign a Business Associate Agreement (BAA). Do the same with every vendor that handles patient data, including Anthropic.
 - Deploy the server to proper hosting instead of ngrok, and make Twilio signature validation mandatory. The server currently checks signatures only when Twilio sends one, which paid accounts do.
 - Store transcripts and call records encrypted, with audit logging.
-- Implement care-manager escalation. Guppy currently *offers* a care-manager follow-up but nothing is sent yet.
+- Implement care-manager escalation. Clara currently *offers* a care-manager follow-up but nothing is sent yet.
 - Add Do-Not-Call and consent checks before every outbound call.
 - Review the prompts and guardrails with clinical and compliance teams.
 

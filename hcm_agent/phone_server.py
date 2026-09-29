@@ -1,4 +1,4 @@
-"""Twilio phone conversation server for Guppy.
+"""Twilio phone conversation server for Clara.
 
 Twilio does speech-to-text and text-to-speech; each turn it posts what the
 patient said here, HCMVoiceAgent replies (guardrails applied), and Twilio
@@ -102,7 +102,7 @@ def voice(key):
     drivers = [d.strip() for d in request.args.get("drivers", "").split(",") if d.strip()]
 
     greeting = (
-        f"Hi {name}, this is Guppy, a virtual assistant from your health insurance care team. "
+        f"Hi {name}, this is Clara, a virtual assistant from your health insurance care team. "
         "I'm calling to check in on how you're doing with your diabetes management. "
         "How have you been feeling lately?"
     )
@@ -170,7 +170,7 @@ def reply_or_wait(key: str, call_sid: str) -> Response:
 
     pending.pop(call_sid, None)
     text = future.result()
-    logger.info("Guppy (%.1fs): %s", time.monotonic() - started, text)
+    logger.info("Clara (%.1fs): %s", time.monotonic() - started, text)
 
     if GOODBYE.search(said):
         end_call(call_sid)
@@ -198,5 +198,5 @@ if __name__ == "__main__":
     if len(WEBHOOK_KEY) < 20 or not ACCOUNT_SID:
         raise SystemExit("Set TWILIO_ACCOUNT_SID and a random PHONE_WEBHOOK_KEY (20+ chars) in .env")
     port = int(os.getenv("FLASK_PORT", "5000"))
-    logger.info("Guppy phone server listening on http://127.0.0.1:%s", port)
+    logger.info("Clara phone server listening on http://127.0.0.1:%s", port)
     app.run(host="127.0.0.1", port=port)

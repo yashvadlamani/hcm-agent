@@ -4,13 +4,13 @@ An AI-powered voice outreach system designed to engage high-risk patients with p
 
 ## What it does today
 
-Meet **Guppy**, a virtual assistant that calls patients on behalf of their health insurance care team. The current prototype can:
+Meet **Clara**, a virtual assistant that calls patients on behalf of their health insurance care team. The current prototype can:
 
-- 📞 **Hold a live phone conversation.** Guppy calls a patient via Twilio, greets them, listens, and responds naturally, turn by turn.
+- 📞 **Hold a live phone conversation.** Clara calls a patient via Twilio, greets them, listens, and responds naturally, turn by turn.
 - 🧠 **Generate replies with Claude** (`claude-opus-5`) based on the patient's name and risk drivers.
-- 🛡️ **Enforce safety guardrails.** Guppy never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
+- 🛡️ **Enforce safety guardrails.** Clara never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
 - 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
-- 💬 **Run without a phone.** Text-only test modes let you chat with Guppy or check the guardrails from the terminal.
+- 💬 **Run without a phone.** Text-only test modes let you chat with Clara or check the guardrails from the terminal.
 
 **[→ Getting Started: setup and your first test call →](./GETTING_STARTED.md)**
 
