@@ -7,7 +7,7 @@ An AI-powered voice outreach system designed to engage high-risk patients with p
 Meet **Clara**, a virtual assistant that calls patients on behalf of their health insurance care team. The current prototype can:
 
 - 📞 **Hold a live phone conversation.** Clara calls a patient via Twilio, greets them, listens, and responds naturally, turn by turn.
-- 🧠 **Generate replies with Claude** (`claude-opus-5`) based on the patient's name and risk drivers.
+- 🧠 **Generate replies with Claude or Azure OpenAI.** Uses Claude (`claude-opus-5`) or a model deployed in Azure AI Foundry, such as `gpt-5-mini`, chosen with the `LLM_PROVIDER` setting. Replies are based on the patient's name and risk drivers.
 - 🛡️ **Enforce safety guardrails.** Clara never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
 - 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
 - 👀 **Show calls live.** A local page at `http://localhost:5000/live` shows each call as it happens: what the patient said (with speech-confidence warnings), Clara's replies and response times, blocked replies, and emergencies.
@@ -113,6 +113,8 @@ Post-Call Execution (tools, escalations, logging)
 
 The guide covers what works today, how a call flows through the app, setting up Claude, Twilio and ngrok, and placing your first test call.
 
+To run Clara in the cloud instead of on your laptop (no ngrok), see **[Deploying to Azure](./docs/DEPLOY_AZURE.md)**.
+
 ### Quick reference
 
 ```bash
@@ -139,8 +141,10 @@ hcm-agent/
 │   ├── chat_demo.py        # Terminal chat with Clara (no phone needed)
 │   └── mock_voice.py       # Terminal "call" interface used by chat_demo
 ├── tests/                  # Automated tests (no API calls or phone needed)
+├── deploy/azure/           # Deploy, start and stop scripts for Azure App Service
 ├── docs/
 │   ├── GETTING_STARTED.md  # Setup and test-call guide
+│   ├── DEPLOY_AZURE.md     # Running Clara on Azure
 │   └── DESIGN.md           # Full target architecture
 ├── requirements.txt
 └── .env.example            # Template for keys and settings

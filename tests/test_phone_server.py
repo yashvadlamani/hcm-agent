@@ -46,6 +46,7 @@ def client(monkeypatch):
     monkeypatch.setattr(phone_server, "WEBHOOK_KEY", KEY)
     monkeypatch.setattr(phone_server, "ACCOUNT_SID", ACCOUNT)
     monkeypatch.setattr(phone_server, "HOLD_SECONDS", 0.2)
+    monkeypatch.setattr(phone_server, "LIVE_VIEW_PASSWORD", "")
     phone_server.calls.clear()
     phone_server.pending.clear()
     live_feed.clear()
@@ -130,6 +131,28 @@ def test_live_view_is_local_only(client):
     via_ngrok = client.get("/live", headers={"X-Forwarded-For": "203.0.113.7"})
     assert via_ngrok.status_code == 404
     assert client.get("/live/events", headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 404
+
+
+def test_status_page(client):
+    response = client.get("/")
+    assert response.status_code == 200 and b"running" in response.data
+
+
+def basic_auth(password):
+    import base64
+    return {"Authorization": "Basic " + base64.b64encode(f"viewer:{password}".encode()).decode()}
+
+
+def test_live_view_requires_password_when_configured(client, monkeypatch):
+    monkeypatch.setattr(phone_server, "LIVE_VIEW_PASSWORD", "correct-horse")
+    proxied = {"X-Forwarded-For": "203.0.113.7"}
+
+    missing = client.get("/live", headers=proxied)
+    assert missing.status_code == 401
+    assert "Basic" in missing.headers["WWW-Authenticate"]
+    assert client.get("/live", headers={**proxied, **basic_auth("wrong")}).status_code == 401
+    assert client.get("/live/events", headers=proxied).status_code == 401
+    assert client.get("/live", headers={**proxied, **basic_auth("correct-horse")}).status_code == 200
 
 
 def test_live_feed_records_a_conversation(client):

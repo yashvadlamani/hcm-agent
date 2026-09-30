@@ -37,6 +37,10 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN", ""))
 ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 WEBHOOK_KEY = os.getenv("PHONE_WEBHOOK_KEY", "")
+# When set (e.g. on Azure), /live asks for this password; when unset, /live is local-only.
+LIVE_VIEW_PASSWORD = os.getenv("LIVE_VIEW_PASSWORD", "")
+if len(WEBHOOK_KEY) < 20 or not ACCOUNT_SID:
+    logger.warning("TWILIO_ACCOUNT_SID or PHONE_WEBHOOK_KEY (20+ chars) is not set; calls will be rejected")
 calls: dict[str, HCMVoiceAgent] = {}
 pending: dict[str, tuple[Future, str, float]] = {}
 executor = ThreadPoolExecutor(max_workers=4)
@@ -223,21 +227,33 @@ def no_input(key):
     return say_and_hang_up(text)
 
 
-def local_only() -> None:
-    # ngrok forwards public traffic from 127.0.0.1 too, but always adds X-Forwarded-For.
+def protect_live_view() -> None:
+    if LIVE_VIEW_PASSWORD:
+        auth = request.authorization
+        if not auth or not hmac.compare_digest(auth.password or "", LIVE_VIEW_PASSWORD):
+            abort(Response("Sign in to view live calls.", 401,
+                           {"WWW-Authenticate": 'Basic realm="Clara live calls"'}))
+        return
+    # No password configured: allow only this machine. ngrok forwards public traffic from
+    # 127.0.0.1 too, but always adds X-Forwarded-For.
     if request.headers.get("X-Forwarded-For") or request.remote_addr not in ("127.0.0.1", "::1"):
         abort(404)
 
 
+@app.get("/")
+def status():
+    return Response("Clara phone server is running.", mimetype="text/plain")
+
+
 @app.get("/live")
 def live_page():
-    local_only()
+    protect_live_view()
     return send_from_directory(STATIC_DIR, "live.html")
 
 
 @app.get("/live/events")
 def live_events():
-    local_only()
+    protect_live_view()
     return Response(live_feed.stream(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache"})
 
