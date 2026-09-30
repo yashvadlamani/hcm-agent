@@ -73,7 +73,7 @@ $alwaysOn = if ($Sku -eq "F1") { "false" } else { "true" }
 Write-Host "5/6 Startup command, Always On ($alwaysOn), HTTPS only"
 # One worker: calls and the live feed live in memory, so every request must reach the same process.
 Invoke-Az webapp config set --resource-group $ResourceGroup --name $AppName --always-on $alwaysOn --output none `
-    --startup-file "gunicorn --bind=0.0.0.0:8000 --workers=1 --threads=16 --timeout=120 hcm_agent.phone_server:app"
+    --startup-file "gunicorn --bind=0.0.0.0:8000 --workers=1 --threads=16 --timeout=120 hcm_agent.telephony.server:app"
 Invoke-Az webapp update --resource-group $ResourceGroup --name $AppName --https-only true --output none
 Invoke-Az webapp log config --resource-group $ResourceGroup --name $AppName --docker-container-logging filesystem --output none
 
@@ -91,4 +91,4 @@ $url = "https://$AppName.azurewebsites.net"
 Write-Host ""
 Write-Host "Deployed: $url"
 Write-Host "Live view: $url/live"
-Write-Host "Place a call: python -m hcm_agent.place_call --url $url --to +1XXXXXXXXXX --name <FirstName>"
+Write-Host "Place a call: clara-call --url $url --to +1XXXXXXXXXX --name <FirstName>"

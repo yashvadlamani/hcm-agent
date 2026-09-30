@@ -10,37 +10,36 @@ to Twilio's HIPAA-eligible offering with a signed BAA.
 
 import hmac
 import logging
-import os
 import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
-from dotenv import load_dotenv
 from flask import Flask, Response, abort, request, send_from_directory
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Gather, VoiceResponse
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from .. import config
+from ..agent import HCMVoiceAgent
 from . import live_feed
-from .agent import HCMVoiceAgent
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = Flask(__name__, static_folder=None)
-# ngrok terminates HTTPS; trust its forwarded headers so request.url matches the URL Twilio signed.
+# ngrok and Azure terminate HTTPS; trust their forwarded headers so request.url matches the URL Twilio signed.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN", ""))
-ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-WEBHOOK_KEY = os.getenv("PHONE_WEBHOOK_KEY", "")
+settings = config.load()
+validator = RequestValidator(settings.twilio_auth_token)
+ACCOUNT_SID = settings.twilio_account_sid
+WEBHOOK_KEY = settings.phone_webhook_key
 # When set (e.g. on Azure), /live asks for this password; when unset, /live is local-only.
-LIVE_VIEW_PASSWORD = os.getenv("LIVE_VIEW_PASSWORD", "")
-if len(WEBHOOK_KEY) < 20 or not ACCOUNT_SID:
-    logger.warning("TWILIO_ACCOUNT_SID or PHONE_WEBHOOK_KEY (20+ chars) is not set; calls will be rejected")
+LIVE_VIEW_PASSWORD = settings.live_view_password
+for problem in config.server_problems(settings):
+    logger.warning("Configuration problem: %s", problem)
 calls: dict[str, HCMVoiceAgent] = {}
 pending: dict[str, tuple[Future, str, float]] = {}
 executor = ThreadPoolExecutor(max_workers=4)
@@ -258,10 +257,16 @@ def live_events():
                     headers={"Cache-Control": "no-cache"})
 
 
+def main() -> None:
+    """Run the development server locally (`clara-server`). Azure runs `app` under gunicorn."""
+    try:
+        config.require(config.server_problems(settings))
+    except config.ConfigError as e:
+        raise SystemExit(str(e))
+    logger.info("Clara phone server listening on http://127.0.0.1:%s", settings.port)
+    logger.info("Live call view: http://127.0.0.1:%s/live", settings.port)
+    app.run(host="127.0.0.1", port=settings.port, threaded=True)
+
+
 if __name__ == "__main__":
-    if len(WEBHOOK_KEY) < 20 or not ACCOUNT_SID:
-        raise SystemExit("Set TWILIO_ACCOUNT_SID and a random PHONE_WEBHOOK_KEY (20+ chars) in .env")
-    port = int(os.getenv("FLASK_PORT", "5000"))
-    logger.info("Clara phone server listening on http://127.0.0.1:%s", port)
-    logger.info("Live call view: http://127.0.0.1:%s/live", port)
-    app.run(host="127.0.0.1", port=port, threaded=True)
+    main()

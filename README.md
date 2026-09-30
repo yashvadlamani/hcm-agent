@@ -118,45 +118,51 @@ To run Clara in the cloud instead of on your laptop (no ngrok), see **[Deploying
 ### Quick reference
 
 ```bash
-pip install -r requirements.txt
-cp .env.example .env                           # then fill in your keys
+pip install -e ".[dev]"      # installs the app, test tools and the clara-* commands
+cp .env.example .env         # then fill in your keys
 
-python -m hcm_agent.chat_demo interactive      # chat with Clara in the terminal
-python -m hcm_agent.phone_server               # start the phone server (then run: ngrok http 5000)
-python -m hcm_agent.place_call --url https://<ngrok-address> --to +1XXXXXXXXXX --name <FirstName>
+clara-chat interactive       # chat with Clara in the terminal
+clara-server                 # start the phone server (then run: ngrok http 5000)
+clara-call --url https://<ngrok-or-azure-address> --to +1XXXXXXXXXX --name <FirstName>
 ```
 
 ## Project Structure
 
 ```
 hcm-agent/
-├── hcm_agent/              # Application package
-│   ├── agent.py            # Conversation logic and the Claude call
-│   ├── guardrails.py       # Safety checks (diagnosis, advice, medication changes, emergencies)
-│   ├── prompts.py          # System prompts
-│   ├── phone_server.py     # Twilio webhook server for live calls (+ the /live page)
-│   ├── live_feed.py        # In-memory event feed behind the live call view
-│   ├── static/live.html    # Live call view (local only)
-│   ├── place_call.py       # Places an outbound test call
-│   ├── chat_demo.py        # Terminal chat with Clara (no phone needed)
-│   └── mock_voice.py       # Terminal "call" interface used by chat_demo
-├── tests/                  # Automated tests (no API calls or phone needed)
-├── deploy/azure/           # Deploy, start and stop scripts for Azure App Service
-├── docs/
-│   ├── GETTING_STARTED.md  # Setup and test-call guide
-│   ├── DEPLOY_AZURE.md     # Running Clara on Azure
-│   └── DESIGN.md           # Full target architecture
-├── requirements.txt
-└── .env.example            # Template for keys and settings
+├── src/hcm_agent/
+│   ├── config.py               # Every setting, read from the environment and checked at startup
+│   ├── agent/                  # The conversation "brain"
+│   │   ├── conversation.py     # HCMVoiceAgent: one call's state, replies and guardrail enforcement
+│   │   ├── llm.py              # Model backends: Claude or Azure OpenAI (LLM_PROVIDER)
+│   │   ├── prompts.py          # System and emergency prompts
+│   │   └── guardrails.py       # Diagnosis, advice, medication-change and emergency checks
+│   ├── telephony/              # Everything Twilio talks to
+│   │   ├── server.py           # Webhook server for live calls, plus the /live page (clara-server)
+│   │   ├── live_feed.py        # In-memory event feed behind the live call view
+│   │   └── static/live.html    # Live call view
+│   └── cli/                    # Command-line tools
+│       ├── place_call.py       # Places an outbound test call (clara-call)
+│       ├── chat_demo.py        # Terminal chat with Clara, no phone needed (clara-chat)
+│       └── mock_voice.py       # Terminal "call" interface used by clara-chat
+├── tests/                      # Automated tests (no API calls, keys or phone needed)
+├── deploy/azure/               # Deploy, start and stop scripts for Azure App Service
+├── docs/                       # Getting started, Azure deployment, full design
+├── .github/workflows/ci.yml    # Runs lint and tests on every push and pull request
+├── pyproject.toml              # Project metadata, commands, test and lint settings
+├── requirements.txt            # Runtime dependencies (Azure installs from this)
+├── .env.example                # Template for keys and settings
+└── SECURITY.md                 # Handling secrets and what to do if one leaks
 ```
 
 ## Testing
 
 ```bash
-python -m pytest
+pytest          # the automated tests
+ruff check .    # code style
 ```
 
-The tests cover the guardrails and the phone server's call flow. They use a stand-in for Claude, so they run in seconds and cost nothing.
+GitHub runs both on every push and pull request. The tests cover settings checks, the guardrails, both model backends and the phone server's call flow. They use stand-ins for Claude, Azure OpenAI and Twilio, so they run in seconds and cost nothing.
 
 ## Compliance & Security
 

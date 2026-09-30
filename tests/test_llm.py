@@ -2,8 +2,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from hcm_agent import agent as agent_module
-from hcm_agent.agent import REFUSAL_REPLY, HCMVoiceAgent
+from hcm_agent.agent import llm as llm_module
+from hcm_agent.agent.conversation import REFUSAL_REPLY, HCMVoiceAgent
+from hcm_agent.config import ConfigError
 
 
 class FakeOpenAI:
@@ -34,7 +35,7 @@ class FakeAnthropic:
 
 @pytest.fixture
 def azure_env(monkeypatch):
-    monkeypatch.setattr(agent_module, "OpenAI", FakeOpenAI)
+    monkeypatch.setattr(llm_module, "OpenAI", FakeOpenAI)
     monkeypatch.setenv("LLM_PROVIDER", "azure_openai")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com/openai/v1")
     monkeypatch.setenv("AZURE_OPENAI_API_KEY", "test-key")
@@ -53,8 +54,8 @@ def test_azure_openai_request_shape(azure_env):
     reply = agent.generate_response("I've been stressed about my refills.")
 
     assert reply == FakeOpenAI.reply
-    assert agent.client.base_url == "https://example.openai.azure.com/openai/v1/"
-    request = agent.client.requests[0]
+    assert agent.llm.client.base_url == "https://example.openai.azure.com/openai/v1/"
+    request = agent.llm.client.requests[0]
     assert request["model"] == "clara-chat"
     assert request["reasoning_effort"] == "minimal"
     assert request["messages"][0]["role"] == "system"
@@ -65,7 +66,7 @@ def test_azure_reasoning_effort_can_be_disabled(azure_env, monkeypatch):
     monkeypatch.setenv("AZURE_OPENAI_REASONING_EFFORT", "")
     agent = new_agent()
     agent.generate_response("Hello")
-    assert "reasoning_effort" not in agent.client.requests[0]
+    assert "reasoning_effort" not in agent.llm.client.requests[0]
 
 
 def test_azure_content_filter_gives_safe_reply(azure_env, monkeypatch):
@@ -83,11 +84,11 @@ def test_guardrails_still_apply_to_azure_replies(azure_env, monkeypatch):
 
 def test_anthropic_is_the_default(monkeypatch):
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
-    monkeypatch.setattr(agent_module, "Anthropic", FakeAnthropic)
+    monkeypatch.setattr(llm_module, "Anthropic", FakeAnthropic)
     assert new_agent().generate_response("Hi Clara") == "Hello from Claude."
 
 
 def test_unknown_provider_is_rejected(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "something-else")
-    with pytest.raises(ValueError):
+    with pytest.raises(ConfigError):
         HCMVoiceAgent()

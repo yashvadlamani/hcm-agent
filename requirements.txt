@@ -4,6 +4,3 @@ python-dotenv
 twilio
 flask
 gunicorn
-
-# Testing
-pytest

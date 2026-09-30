@@ -1,20 +1,18 @@
 """Place an outbound Twilio call that talks to the Clara phone server.
 
 Usage:
-    python -m hcm_agent.place_call --url https://<ngrok-or-azure-address> --to +1XXXXXXXXXX --name <FirstName>
+    clara-call --url https://<ngrok-or-azure-address> --to +1XXXXXXXXXX --name <FirstName>
 """
 
 import argparse
-import os
 import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlencode
 
-from dotenv import load_dotenv
 from twilio.rest import Client
 
-load_dotenv()
+from .. import config
 
 WAKE_TIMEOUT_SECONDS = 120
 
@@ -46,24 +44,28 @@ def wake_server(base_url: str) -> None:
         time.sleep(3)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Call a patient and connect them to Clara.")
     parser.add_argument("--url", required=True, help="Public https base URL (ngrok or Azure)")
     parser.add_argument("--to", required=True, help="Number to call (must be verified on a trial account)")
     parser.add_argument("--name", default="there", help="Patient's first name for the greeting")
     args = parser.parse_args()
 
+    settings = config.load()
+    try:
+        config.require(config.call_problems(settings))
+    except config.ConfigError as e:
+        raise SystemExit(str(e))
+
     base_url = args.url.rstrip("/")
     wake_server(base_url + "/")
 
-    client = Client(os.environ["TWILIO_ACCOUNT_SID"], os.environ["TWILIO_AUTH_TOKEN"])
-    key = os.environ["PHONE_WEBHOOK_KEY"]
-    webhook = f"{base_url}/t/{key}/voice?{urlencode({'name': args.name})}"
-
+    client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
+    webhook = f"{base_url}/t/{settings.phone_webhook_key}/voice?{urlencode({'name': args.name})}"
     # Trial accounts reject any call parameters beyond to/from/url.
     call = client.calls.create(
         to=to_e164(args.to),
-        from_=to_e164(os.environ["TWILIO_PHONE_NUMBER"]),
+        from_=to_e164(settings.twilio_phone_number),
         url=webhook,
     )
     print(f"Calling {args.to} ... (call SID {call.sid}, status {call.status})")

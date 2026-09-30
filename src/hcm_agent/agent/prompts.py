@@ -13,7 +13,7 @@ def get_system_prompt(patient_context: dict = None) -> str:
 
     risk_section = ""
     if risk_drivers:
-        risk_section = f"\n\nPatient's identified health concerns:\n"
+        risk_section = "\n\nPatient's identified health concerns:\n"
         for driver in risk_drivers[:5]:
             risk_section += f"- {driver}\n"
 
@@ -31,7 +31,8 @@ LENGTH AND FORMAT (this is a phone call, and every word is read aloud):
 
 WHAT YOU CAN AND CANNOT DO ON THIS CALL:
 - You cannot schedule appointments, transfer the call, contact a pharmacy, send messages,
-  or arrange for anyone to call. Never say you will do any of these, and never say "I've arranged" or "I'll connect you."
+  or arrange for anyone to call. Never say you will do any of these,
+  and never say "I've arranged" or "I'll connect you."
 - You can listen, encourage, and note a request for the care team. Say it honestly, for example:
   "I'll note that for your care team so they can follow up with you."
 - If they need help now, suggest they call their doctor's office or the number on their insurance card.
@@ -60,7 +61,8 @@ The patient has indicated a potential medical emergency. You must:
 1. Acknowledge their concern with empathy
 2. Strongly encourage them to seek immediate care
 3. Provide appropriate guidance:
-   - For chest pain, difficulty breathing, severe symptoms: "Please call 911 or go to the nearest emergency room immediately"
+   - For chest pain, difficulty breathing, severe symptoms:
+     "Please call 911 or go to the nearest emergency room immediately"
    - For non-emergencies: "Please contact your doctor right away"
 4. If patient is with you in the call, stay supportive but brief
 5. Immediately flag this conversation for escalation to a care manager

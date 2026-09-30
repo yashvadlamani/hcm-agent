@@ -12,11 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def build(out: str) -> None:
+    # The package goes at the zip root (hcm_agent/...), so gunicorn can import it without installing it.
+    src = ROOT / "src"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.write(ROOT / "requirements.txt", "requirements.txt")
-        for path in sorted((ROOT / "hcm_agent").rglob("*")):
+        for path in sorted((src / "hcm_agent").rglob("*")):
             if path.is_file() and "__pycache__" not in path.parts:
-                archive.write(path, path.relative_to(ROOT).as_posix())
+                archive.write(path, path.relative_to(src).as_posix())
 
 
 if __name__ == "__main__":

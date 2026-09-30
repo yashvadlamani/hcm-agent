@@ -15,7 +15,7 @@ This guide puts the Clara phone server on **Azure App Service**, so it runs in t
 
 | Tier | Cost | Behavior |
 |---|---|---|
-| **Free (F1)**, the default | $0 | Works on a new free-trial subscription. The app **sleeps after about 20 idle minutes** and takes up to a minute to wake. `place_call` wakes it before dialing, so calls still work. Calls and the live view's history are cleared when it sleeps. There's also a daily CPU-time cap, which is plenty for demo calls. |
+| **Free (F1)**, the default | $0 | Works on a new free-trial subscription. The app **sleeps after about 20 idle minutes** and takes up to a minute to wake. `clara-call` wakes it before dialing, so calls still work. Calls and the live view's history are cleared when it sleeps. There's also a daily CPU-time cap, which is plenty for demo calls. |
 | **Basic (B1)** | About $13/month while on | Always On: never sleeps. **New free-trial subscriptions have no B1 quota** (deploying fails with *"Operation cannot be completed without additional quota"*). See [Moving to B1](#moving-to-b1-always-on) to request it. |
 
 ---
@@ -78,7 +78,7 @@ Optional arguments: `-Sku B1` (default `F1`), `-Location westus2` (default `east
 No ngrok needed. Point the call at your Azure address:
 
 ```powershell
-python -m hcm_agent.place_call --url https://<app>.azurewebsites.net --to +1XXXXXXXXXX --name <FirstName>
+clara-call --url https://<app>.azurewebsites.net --to +1XXXXXXXXXX --name <FirstName>
 ```
 
 On the Free tier, if the app has been idle you'll see *"Waking the server…"* for up to a minute before the phone rings. That's expected.
@@ -134,7 +134,7 @@ Clara can generate replies with **Claude** (Anthropic's API) or with a model you
    Use the **v1** endpoint (ending in `/openai/v1`). It doesn't need an API version.
 4. Try it locally, then redeploy so Azure picks up the new settings:
    ```powershell
-   python -m hcm_agent.chat_demo interactive
+   clara-chat interactive
    powershell -ExecutionPolicy Bypass -File .\deploy\azure\deploy.ps1 -AppName <app> -Location <region>
    ```
 
@@ -159,7 +159,7 @@ You'll see the same output a local terminal shows: each patient turn, Clara's re
 | Deploy fails with "name already taken" or "not available" | Choose a different `-AppName` |
 | Deploy fails with *"Operation cannot be completed without additional quota"* | Your subscription has no quota for that tier. Use the default `F1`, or request B1 quota (see [Moving to B1](#moving-to-b1-always-on)) |
 | Deploy fails with "not available in this region" | Retry with `-Location westus2` or `-Location centralus`, and a new `-ResourceGroup` name |
-| `place_call` says the server didn't respond | The app is stopped (run `start.ps1`) or failed to start (check the logs) |
+| `clara-call` says the server didn't respond | The app is stopped (run `start.ps1`) or failed to start (check the logs) |
 | `az` is not recognized | Reopen PowerShell after installing the Azure CLI |
 | Running the script is blocked by execution policy | Use the `powershell -ExecutionPolicy Bypass -File …` form shown above |
 | `/` shows an Azure "Application Error" page | Check the logs (above). Usually a missing setting: re-run the deploy script after fixing `.env` |

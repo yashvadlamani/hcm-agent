@@ -1,6 +1,6 @@
 import pytest
 
-from hcm_agent.guardrails import GuardrailViolation, VoiceAgentGuardrails
+from hcm_agent.agent.guardrails import GuardrailViolation, VoiceAgentGuardrails
 
 guardrails = VoiceAgentGuardrails()
 

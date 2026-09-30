@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from hcm_agent import live_feed, phone_server
+from hcm_agent.telephony import live_feed, server
 
 KEY = "test-webhook-key-0123456789"
 ACCOUNT = "ACtest"
@@ -42,16 +42,16 @@ class FakeAgent:
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(phone_server, "HCMVoiceAgent", FakeAgent)
-    monkeypatch.setattr(phone_server, "WEBHOOK_KEY", KEY)
-    monkeypatch.setattr(phone_server, "ACCOUNT_SID", ACCOUNT)
-    monkeypatch.setattr(phone_server, "HOLD_SECONDS", 0.2)
-    monkeypatch.setattr(phone_server, "LIVE_VIEW_PASSWORD", "")
-    phone_server.calls.clear()
-    phone_server.pending.clear()
+    monkeypatch.setattr(server, "HCMVoiceAgent", FakeAgent)
+    monkeypatch.setattr(server, "WEBHOOK_KEY", KEY)
+    monkeypatch.setattr(server, "ACCOUNT_SID", ACCOUNT)
+    monkeypatch.setattr(server, "HOLD_SECONDS", 0.2)
+    monkeypatch.setattr(server, "LIVE_VIEW_PASSWORD", "")
+    server.calls.clear()
+    server.pending.clear()
     live_feed.clear()
     FakeAgent.release = None
-    return phone_server.app.test_client()
+    return server.app.test_client()
 
 
 def post(client, path, key=KEY, account=ACCOUNT, **form):
@@ -85,11 +85,11 @@ def test_reply_is_spoken_and_clara_listens_again(client):
 
 def test_emergency_skips_model_and_hangs_up(client):
     post(client, "voice?name=Yash")
-    agent = phone_server.calls["CA1"]
+    agent = server.calls["CA1"]
     _, body = post(client, "respond", SpeechResult="I'm having chest pain")
     assert "9 1 1" in body and "<Hangup" in body
     assert agent.generate_calls == 0
-    assert "CA1" not in phone_server.calls
+    assert "CA1" not in server.calls
 
 
 def test_goodbye_ends_the_call(client):
@@ -144,7 +144,7 @@ def basic_auth(password):
 
 
 def test_live_view_requires_password_when_configured(client, monkeypatch):
-    monkeypatch.setattr(phone_server, "LIVE_VIEW_PASSWORD", "correct-horse")
+    monkeypatch.setattr(server, "LIVE_VIEW_PASSWORD", "correct-horse")
     proxied = {"X-Forwarded-For": "203.0.113.7"}
 
     missing = client.get("/live", headers=proxied)
@@ -176,7 +176,7 @@ def test_live_feed_records_emergency(client):
 
 def test_live_feed_shows_blocked_reply(client, monkeypatch):
     post(client, "voice?name=Yash")
-    phone_server.calls["CA1"].last_blocked_reply = {"rule": "medical_diagnosis", "text": "You have neuropathy."}
+    server.calls["CA1"].last_blocked_reply = {"rule": "medical_diagnosis", "text": "You have neuropathy."}
     post(client, "respond", SpeechResult="What's wrong with my feet?")
     guardrail = next(e for e in live_feed.history() if e["type"] == "guardrail")
     assert guardrail["rule"] == "medical_diagnosis"
