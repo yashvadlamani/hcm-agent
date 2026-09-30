@@ -2,7 +2,7 @@ import threading
 
 import pytest
 
-from hcm_agent import phone_server
+from hcm_agent import live_feed, phone_server
 
 KEY = "test-webhook-key-0123456789"
 ACCOUNT = "ACtest"
@@ -48,6 +48,7 @@ def client(monkeypatch):
     monkeypatch.setattr(phone_server, "HOLD_SECONDS", 0.2)
     phone_server.calls.clear()
     phone_server.pending.clear()
+    live_feed.clear()
     FakeAgent.release = None
     return phone_server.app.test_client()
 
@@ -118,3 +119,42 @@ def test_no_input_hangs_up(client):
     post(client, "voice?name=Yash")
     _, body = post(client, "no-input")
     assert "<Hangup" in body
+
+
+def event_types():
+    return [e["type"] for e in live_feed.history()]
+
+
+def test_live_view_is_local_only(client):
+    assert client.get("/live").status_code == 200
+    via_ngrok = client.get("/live", headers={"X-Forwarded-For": "203.0.113.7"})
+    assert via_ngrok.status_code == 404
+    assert client.get("/live/events", headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 404
+
+
+def test_live_feed_records_a_conversation(client):
+    post(client, "voice?name=Yash")
+    post(client, "respond", SpeechResult="I'm feeling stressed.", Confidence="0.42")
+    post(client, "respond", SpeechResult="That's all, goodbye.")
+    assert event_types() == [
+        "call_started", "clara",
+        "patient", "thinking", "clara",
+        "patient", "thinking", "clara", "call_ended",
+    ]
+    patient = next(e for e in live_feed.history() if e["type"] == "patient")
+    assert patient["confidence"] == 0.42
+
+
+def test_live_feed_records_emergency(client):
+    post(client, "voice?name=Yash")
+    post(client, "respond", SpeechResult="I'm having chest pain")
+    assert event_types()[-3:] == ["emergency", "clara", "call_ended"]
+
+
+def test_live_feed_shows_blocked_reply(client, monkeypatch):
+    post(client, "voice?name=Yash")
+    phone_server.calls["CA1"].last_blocked_reply = {"rule": "medical_diagnosis", "text": "You have neuropathy."}
+    post(client, "respond", SpeechResult="What's wrong with my feet?")
+    guardrail = next(e for e in live_feed.history() if e["type"] == "guardrail")
+    assert guardrail["rule"] == "medical_diagnosis"
+    assert guardrail["blocked_text"] == "You have neuropathy."

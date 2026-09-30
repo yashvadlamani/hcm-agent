@@ -10,6 +10,7 @@ Meet **Clara**, a virtual assistant that calls patients on behalf of their healt
 - 🧠 **Generate replies with Claude** (`claude-opus-5`) based on the patient's name and risk drivers.
 - 🛡️ **Enforce safety guardrails.** Clara never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
 - 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
+- 👀 **Show calls live.** A local page at `http://localhost:5000/live` shows each call as it happens: what the patient said (with speech-confidence warnings), Clara's replies and response times, blocked replies, and emergencies.
 - 💬 **Run without a phone.** Text-only test modes let you chat with Clara or check the guardrails from the terminal.
 
 **[→ Getting Started: setup and your first test call →](./docs/GETTING_STARTED.md)**
@@ -131,7 +132,9 @@ hcm-agent/
 │   ├── agent.py            # Conversation logic and the Claude call
 │   ├── guardrails.py       # Safety checks (diagnosis, advice, medication changes, emergencies)
 │   ├── prompts.py          # System prompts
-│   ├── phone_server.py     # Twilio webhook server for live calls
+│   ├── phone_server.py     # Twilio webhook server for live calls (+ the /live page)
+│   ├── live_feed.py        # In-memory event feed behind the live call view
+│   ├── static/live.html    # Live call view (local only)
 │   ├── place_call.py       # Places an outbound test call
 │   ├── chat_demo.py        # Terminal chat with Clara (no phone needed)
 │   └── mock_voice.py       # Terminal "call" interface used by chat_demo

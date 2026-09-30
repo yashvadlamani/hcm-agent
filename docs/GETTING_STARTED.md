@@ -79,7 +79,8 @@ Step by step:
 | `hcm_agent/agent.py` | `HCMVoiceAgent`: conversation state, Claude call, guardrail enforcement |
 | `hcm_agent/guardrails.py` | Pattern checks for diagnoses, advice, prescription changes, emergencies |
 | `hcm_agent/prompts.py` | System prompt and emergency prompt |
-| `hcm_agent/phone_server.py` | Flask webhook server Twilio talks to during a call |
+| `hcm_agent/phone_server.py` | Flask webhook server Twilio talks to during a call; also serves the `/live` page |
+| `hcm_agent/live_feed.py`, `hcm_agent/static/live.html` | Live call view: event feed and the page |
 | `hcm_agent/place_call.py` | Places an outbound test call |
 | `hcm_agent/chat_demo.py` | Terminal chat with Clara: `interactive`, `guardrails`, `demo` |
 | `hcm_agent/mock_voice.py` | Terminal "call" interface used by `chat_demo.py` |
@@ -180,6 +181,14 @@ Open **three terminals** in the project folder.
 python -m hcm_agent.phone_server
 ```
 Wait for `Clara phone server listening on http://127.0.0.1:5000`. Each conversation turn is logged here.
+
+**Optional: watch the call live.** Open **http://localhost:5000/live** in your browser. Each call appears as soon as it connects, showing:
+- what the patient said, with a warning when Twilio wasn't confident it heard correctly
+- Clara's replies and how long each took
+- any reply a guardrail blocked, with the original text
+- emergencies
+
+The page only works from your own computer: requests that come in through ngrok get a "not found" response. Everything is held in memory and clears when the server restarts.
 
 **Terminal 2: start ngrok**
 ```bash

@@ -23,6 +23,7 @@ class HCMVoiceAgent:
         self.patient_context = None
         self.is_emergency = False
         self.escalation_reason = None
+        self.last_blocked_reply = None
 
     def initialize_call(self, patient_context: dict = None):
         """Initialize a call with patient context."""
@@ -50,6 +51,8 @@ class HCMVoiceAgent:
 
         Returns the agent response text.
         """
+        self.last_blocked_reply = None
+
         # Check for emergency
         is_emergency, reason = self.process_patient_input(patient_message)
 
@@ -93,7 +96,7 @@ class HCMVoiceAgent:
                 # If it's a medical advice/diagnosis violation, regenerate
                 if violation in [GuardrailViolation.MEDICAL_ADVICE, GuardrailViolation.MEDICAL_DIAGNOSIS, GuardrailViolation.PRESCRIPTION_CHANGE]:
                     logger.info("Regenerating response due to guardrail violation...")
-                    # Remove the last assistant message if it exists
+                    self.last_blocked_reply = {"rule": violation.value, "text": agent_response}
                     agent_response = self._safe_fallback_response(patient_message, violation)
 
             # Add agent response to history
