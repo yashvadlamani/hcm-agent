@@ -6,7 +6,7 @@ from hcm_agent.telephony import live_feed, server
 
 KEY = "test-webhook-key-0123456789"
 ACCOUNT = "ACtest"
-BASE = "https://example.ngrok-free.dev"
+BASE = "https://clara-test.azurewebsites.net"
 
 
 class FakeAgent:
@@ -128,8 +128,8 @@ def event_types():
 
 def test_live_view_is_local_only(client):
     assert client.get("/live").status_code == 200
-    via_ngrok = client.get("/live", headers={"X-Forwarded-For": "203.0.113.7"})
-    assert via_ngrok.status_code == 404
+    via_proxy = client.get("/live", headers={"X-Forwarded-For": "203.0.113.7"})
+    assert via_proxy.status_code == 404
     assert client.get("/live/events", headers={"X-Forwarded-For": "203.0.113.7"}).status_code == 404
 
 

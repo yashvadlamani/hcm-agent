@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = Flask(__name__, static_folder=None)
-# ngrok and Azure terminate HTTPS; trust their forwarded headers so request.url matches the URL Twilio signed.
+# Azure App Service terminates HTTPS; trust its forwarded headers so request.url matches the URL Twilio signed.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 settings = config.load()
@@ -233,8 +233,8 @@ def protect_live_view() -> None:
             abort(Response("Sign in to view live calls.", 401,
                            {"WWW-Authenticate": 'Basic realm="Clara live calls"'}))
         return
-    # No password configured: allow only this machine. ngrok forwards public traffic from
-    # 127.0.0.1 too, but always adds X-Forwarded-For.
+    # No password configured: allow only direct requests from this machine. Traffic that came
+    # through a proxy or load balancer (such as Azure's front end) carries X-Forwarded-For.
     if request.headers.get("X-Forwarded-For") or request.remote_addr not in ("127.0.0.1", "::1"):
         abort(404)
 

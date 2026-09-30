@@ -94,8 +94,8 @@
     <div class="timeline" id="timeline">
       <div class="empty">
         <strong>Waiting for a call…</strong>
-        <p>Calls appear here the moment they connect. Start one from another terminal:</p>
-        <code>python -m hcm_agent.place_call --url https://&lt;ngrok-address&gt; --to +1XXXXXXXXXX</code>
+        <p>Calls appear here the moment they connect. Start one from the project folder:</p>
+        <code id="start-command">clara-call --url https://&lt;your-app&gt;.azurewebsites.net --to +1XXXXXXXXXX --name &lt;FirstName&gt;</code>
       </div>
     </div>
   </section>
@@ -226,6 +226,10 @@ function updateMeta() {
   $("head-meta").textContent = parts.join(" · ");
 }
 setInterval(() => { const c = calls.get(selected); if (c && !c.ended) updateMeta(); }, 1000);
+
+// Show the exact command for this deployment, using the address this page was loaded from.
+$("start-command").textContent =
+  `clara-call --url ${location.origin} --to +1XXXXXXXXXX --name <FirstName>`;
 
 function connect() {
   const source = new EventSource("/live/events");

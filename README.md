@@ -111,9 +111,9 @@ Post-Call Execution (tools, escalations, logging)
 
 **[→ Setup and test-call guide →](./docs/GETTING_STARTED.md)**
 
-The guide covers what works today, how a call flows through the app, setting up Claude, Twilio and ngrok, and placing your first test call.
+The guide covers what works today, how a call flows through the app, setting up Claude, Twilio and Azure, and placing your first test call.
 
-To run Clara in the cloud instead of on your laptop (no ngrok), see **[Deploying to Azure](./docs/DEPLOY_AZURE.md)**.
+The Clara server runs on Azure App Service. See **[Deploying to Azure](./docs/DEPLOY_AZURE.md)** for deploying it and turning it on and off.
 
 ### Quick reference
 
@@ -121,9 +121,12 @@ To run Clara in the cloud instead of on your laptop (no ngrok), see **[Deploying
 pip install -e ".[dev]"      # installs the app, test tools and the clara-* commands
 cp .env.example .env         # then fill in your keys
 
+# Deploy (or update) the Clara server on Azure App Service
+powershell -ExecutionPolicy Bypass -File .\deploy\azure\deploy.ps1 -AppName <your-app> -Location centralus
+
 clara-chat interactive       # chat with Clara in the terminal
-clara-server                 # start the phone server (then run: ngrok http 5000)
-clara-call --url https://<ngrok-or-azure-address> --to +1XXXXXXXXXX --name <FirstName>
+clara-server                 # run the phone server locally (development only)
+clara-call --url https://<your-app>.azurewebsites.net --to +1XXXXXXXXXX --name <FirstName>
 ```
 
 ## Project Structure

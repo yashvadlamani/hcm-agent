@@ -1,7 +1,7 @@
 """Place an outbound Twilio call that talks to the Clara phone server.
 
 Usage:
-    clara-call --url https://<ngrok-or-azure-address> --to +1XXXXXXXXXX --name <FirstName>
+    clara-call --url https://<your-app>.azurewebsites.net --to +1XXXXXXXXXX --name <FirstName>
 """
 
 import argparse
@@ -46,7 +46,8 @@ def wake_server(base_url: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Call a patient and connect them to Clara.")
-    parser.add_argument("--url", required=True, help="Public https base URL (ngrok or Azure)")
+    parser.add_argument("--url", required=True,
+                        help="The app's public https address, e.g. https://<your-app>.azurewebsites.net")
     parser.add_argument("--to", required=True, help="Number to call (must be verified on a trial account)")
     parser.add_argument("--name", default="there", help="Patient's first name for the greeting")
     args = parser.parse_args()

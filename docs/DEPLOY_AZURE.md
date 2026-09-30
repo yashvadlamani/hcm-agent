@@ -1,6 +1,6 @@
 # Deploying Clara to Azure
 
-This guide puts the Clara phone server on **Azure App Service**, so it runs in the cloud instead of on your laptop. You get a permanent public address like `https://clara-yourname.azurewebsites.net`, so **ngrok is no longer needed**, and anyone with the password can open the live call view.
+This guide puts the Clara phone server on **Azure App Service**, so it runs in the cloud instead of on your laptop. You get a permanent public address like `https://clara-yourname.azurewebsites.net` that Twilio can reach during calls, and anyone with the password can open the live call view.
 
 > ⚠️ **Test data only.** An Azure free trial is not covered by a Business Associate Agreement (BAA), so it is not HIPAA-compliant. Don't use it with real patients. See [Before production](./GETTING_STARTED.md#8-before-production).
 
@@ -75,7 +75,7 @@ Optional arguments: `-Sku B1` (default `F1`), `-Location westus2` (default `east
 
 ## 6. Place a test call
 
-No ngrok needed. Point the call at your Azure address:
+Point the call at your Azure address:
 
 ```powershell
 clara-call --url https://<app>.azurewebsites.net --to +1XXXXXXXXXX --name <FirstName>
