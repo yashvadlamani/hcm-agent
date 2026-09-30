@@ -32,6 +32,9 @@ class Settings:
     phone_webhook_key: str
     live_view_password: str
     port: int
+    clara_base_url: str
+    allowed_call_numbers: tuple[str, ...]
+    max_calls_per_hour: int
 
 
 def load() -> Settings:
@@ -49,6 +52,9 @@ def load() -> Settings:
         phone_webhook_key=env("PHONE_WEBHOOK_KEY", ""),
         live_view_password=env("LIVE_VIEW_PASSWORD", ""),
         port=int(env("FLASK_PORT", "5000")),
+        clara_base_url=env("CLARA_BASE_URL", "").rstrip("/"),
+        allowed_call_numbers=tuple(n.strip() for n in env("ALLOWED_CALL_NUMBERS", "").split(",") if n.strip()),
+        max_calls_per_hour=int(env("MAX_CALLS_PER_HOUR", "10")),
     )
 
 
@@ -82,6 +88,16 @@ def call_problems(settings: Settings) -> list[str]:
         "PHONE_WEBHOOK_KEY": settings.phone_webhook_key,
     }
     return [f"{name} is not set" for name, value in required.items() if not value]
+
+
+def call_request_problems(settings: Settings) -> list[str]:
+    """Settings the call-request Azure Function needs; it places calls without a person watching."""
+    problems = call_problems(settings)
+    if not settings.clara_base_url.startswith("https://"):
+        problems.append("CLARA_BASE_URL must be the Clara server's https address")
+    if not settings.allowed_call_numbers:
+        problems.append("ALLOWED_CALL_NUMBERS must list the numbers that may be called (comma-separated)")
+    return problems
 
 
 def require(problems: list[str]) -> None:

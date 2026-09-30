@@ -12,7 +12,8 @@ requires-python = ">=3.10"
 dynamic = ["dependencies"]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+# azure-* are only needed to test the call-request Azure Function (functions/).
+dev = ["pytest", "ruff", "azure-functions", "azure-storage-blob"]
 
 [project.scripts]
 clara-server = "hcm_agent.telephony.server:main"
@@ -30,11 +31,11 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "functions"]
 
 [tool.ruff]
 line-length = 120
-src = ["src", "tests"]
+src = ["src", "tests", "functions"]
 extend-exclude = ["docs"]
 
 [tool.ruff.lint]

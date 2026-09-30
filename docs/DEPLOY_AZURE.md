@@ -85,6 +85,66 @@ On the Free tier, if the app has been idle you'll see *"Waking the server…"* f
 
 Keep `/live` open to watch the call as it happens. The Twilio trial-account limits in the [Getting Started guide](./GETTING_STARTED.md#twilio-trial-account-limits) still apply.
 
+## Placing calls by uploading a file
+
+An Azure Function can place calls for you: upload a small JSON file to a storage container and Clara calls that number. The code lives in [`functions/`](../functions/) and reuses the same call logic as `clara-call`.
+
+```
+request.json ──upload──▶ storage container call-requests/incoming/
+                              │  (Event Grid: new .json file)
+                              ▼
+                     Function app ──checks──▶ Twilio call to the Clara server
+                              │
+                              ▼
+            call-requests/processed/ or call-requests/failed/ (the result)
+```
+
+### Set it up (one time)
+
+1. In `.env`, set the numbers Clara may call. The function refuses everything else:
+
+   ```
+   ALLOWED_CALL_NUMBERS=+1XXXXXXXXXX
+   MAX_CALLS_PER_HOUR=10
+   ```
+
+2. Deploy the storage account, the Function app (Flex Consumption, which has a monthly free grant) and the Event Grid trigger:
+
+   ```powershell
+   .\deploy\azure\deploy_function.ps1 -FunctionApp <function-app-name> -ClaraAppName <app> -PublishProfilePath .\publish-profile.xml
+   ```
+
+   Re-run it whenever you change these settings in `.env`. It's safe to repeat.
+
+3. Redeploy automatically from GitHub (optional). In your GitHub repository, go to **Settings → Secrets and variables → Actions** and add:
+   - the secret `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`, containing the whole `publish-profile.xml` file (then delete that file: it's a password)
+   - the variable `AZURE_FUNCTIONAPP_NAME`, set to your function app's name (not needed if it's `clara-hcm-agent-calls`)
+
+   From then on, every push that changes `functions/` or `src/hcm_agent/` redeploys the function ([workflow](../.github/workflows/deploy-function.yml)).
+
+### Place a call
+
+Create `request.json`:
+
+```json
+{ "to": "+1XXXXXXXXXX", "name": "Yash", "risk_drivers": ["missed refills", "high A1C"] }
+```
+
+Only `to` is required. Upload it to `incoming/`, either in the Azure portal (**Storage account → Containers → call-requests**) or with:
+
+```powershell
+az storage blob upload --account-name <storage-account> --auth-mode key -c call-requests -n incoming/request.json -f request.json
+```
+
+The storage account's name is printed at the end of `deploy_function.ps1`. The phone rings within about a minute; the Clara server must be on. The request then moves to `processed/` (with the Twilio call SID) or `failed/` (with the reason).
+
+The function places a call only when all of these hold:
+- The file is valid JSON under 10 KB, with a phone number in `to`.
+- The number is in `ALLOWED_CALL_NUMBERS`.
+- Fewer than `MAX_CALLS_PER_HOUR` calls were placed in the last hour.
+
+Each file is handled once, even if Azure delivers the event twice.
+
 ---
 
 ## Turning it on and off
@@ -165,11 +225,12 @@ You'll see the same output a local terminal shows: each patient turn, Clara's re
 | `/` shows an Azure "Application Error" page | Check the logs (above). Usually a missing setting: re-run the deploy script after fixing `.env` |
 | `/live` keeps asking for a password | Use the exact `LIVE_VIEW_PASSWORD` from the `.env` you deployed with |
 | Call says *"We could not reach your TwiML server"* | Make sure the app is on (`start.ps1`), `/` loads, and `--url` matches your Azure address |
+| An uploaded request stays in `incoming/` | Check the function's logs: **Function app → call_request → Invocations**. Re-run `deploy_function.ps1` to recreate the trigger |
 | The call gets "Sorry, this call session has expired" | The app restarted mid-call (for example, after a deploy). Place a new call |
 
 ## Removing everything
 
-This deletes the app, the plan and the resource group permanently:
+This deletes the app, the plan, the function, the storage account and the resource group permanently:
 
 ```powershell
 az group delete --name clara-rg
@@ -177,6 +238,7 @@ az group delete --name clara-rg
 
 ## Security notes for this setup
 
-- Your keys are stored as App Service settings, encrypted by Azure. `.env` stays on your laptop and isn't uploaded.
+- Your keys are stored as App Service and Function app settings, encrypted by Azure. `.env` stays on your laptop and isn't uploaded.
 - The live view uses a single shared password over HTTPS. That's fine for a demo. For real use, replace it with company sign-in (Microsoft Entra ID).
+- The call-requests container is private. Anyone who can write to it can make Clara call the numbers in `ALLOWED_CALL_NUMBERS`, so keep that list short.
 - Twilio requests are checked using the secret key in the webhook address and your Account SID. On a paid Twilio account, make signature checking mandatory as well.

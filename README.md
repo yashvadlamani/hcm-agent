@@ -11,6 +11,7 @@ Meet **Clara**, a virtual assistant that calls patients on behalf of their healt
 - 🛡️ **Enforce safety guardrails.** Clara never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
 - 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
 - 👀 **Show calls live.** A local page at `http://localhost:5000/live` shows each call as it happens: what the patient said (with speech-confidence warnings), Clara's replies and response times, blocked replies, and emergencies.
+- 📂 **Place calls from a file upload.** Uploading a small JSON file to an Azure storage container makes an Azure Function place the call, limited to approved numbers.
 - 💬 **Run without a phone.** Text-only test modes let you chat with Clara or check the guardrails from the terminal.
 
 **[→ Getting Started: setup and your first test call →](./docs/GETTING_STARTED.md)**
@@ -126,7 +127,10 @@ powershell -ExecutionPolicy Bypass -File .\deploy\azure\deploy.ps1 -AppName <you
 
 clara-chat interactive       # chat with Clara in the terminal
 clara-server                 # run the phone server locally (development only)
-clara-call --url https://<your-app>.azurewebsites.net --to +1XXXXXXXXXX --name <FirstName>
+clara-call --to +1XXXXXXXXXX --name <FirstName>   # calls through CLARA_BASE_URL (or pass --url)
+
+# Deploy the Azure Function that places a call for each JSON file uploaded to storage
+powershell -ExecutionPolicy Bypass -File .\deploy\azure\deploy_function.ps1 -FunctionApp <function-app> -ClaraAppName <your-app>
 ```
 
 ## Project Structure
@@ -142,16 +146,19 @@ hcm-agent/
 │   │   └── guardrails.py       # Diagnosis, advice, medication-change and emergency checks
 │   ├── telephony/              # Everything Twilio talks to
 │   │   ├── server.py           # Webhook server for live calls, plus the /live page (clara-server)
+│   │   ├── outbound.py         # Places outbound calls (allow-list, wake-up, Twilio)
+│   │   ├── call_requests.py    # Validates JSON call requests for the Azure Function
 │   │   ├── live_feed.py        # In-memory event feed behind the live call view
 │   │   └── static/live.html    # Live call view
 │   └── cli/                    # Command-line tools
 │       ├── place_call.py       # Places an outbound test call (clara-call)
 │       ├── chat_demo.py        # Terminal chat with Clara, no phone needed (clara-chat)
 │       └── mock_voice.py       # Terminal "call" interface used by clara-chat
+├── functions/                  # Azure Function: places a call for each uploaded JSON request
 ├── tests/                      # Automated tests (no API calls, keys or phone needed)
-├── deploy/azure/               # Deploy, start and stop scripts for Azure App Service
+├── deploy/azure/               # Deploy, start and stop scripts for App Service and the Function
 ├── docs/                       # Getting started, Azure deployment, full design
-├── .github/workflows/ci.yml    # Runs lint and tests on every push and pull request
+├── .github/workflows/          # CI (lint and tests) and the Function's deploy on push
 ├── pyproject.toml              # Project metadata, commands, test and lint settings
 ├── requirements.txt            # Runtime dependencies (Azure installs from this)
 ├── .env.example                # Template for keys and settings

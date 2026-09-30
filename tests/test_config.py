@@ -9,14 +9,23 @@ VALID = config.Settings(
     llm_provider="anthropic", anthropic_model="claude-opus-5",
     azure_openai_endpoint="", azure_openai_api_key="", azure_openai_deployment="",
     azure_openai_reasoning_effort="minimal",
-    twilio_account_sid="ACtest", twilio_auth_token="token", twilio_phone_number="+15550100",
+    twilio_account_sid="ACtest", twilio_auth_token="token", twilio_phone_number="+15555550199",
     phone_webhook_key="k" * 24, live_view_password="", port=5000,
+    clara_base_url="https://clara.example.net", allowed_call_numbers=("+15555550100",), max_calls_per_hour=10,
 )
 
 
 def test_valid_settings_have_no_problems():
     assert config.server_problems(VALID) == []
     assert config.call_problems(VALID) == []
+    assert config.call_request_problems(VALID) == []
+
+
+def test_call_request_function_needs_an_allow_list_and_https_url():
+    settings = dataclasses.replace(VALID, allowed_call_numbers=(), clara_base_url="http://clara.example.net")
+    problems = config.call_request_problems(settings)
+    assert any("ALLOWED_CALL_NUMBERS" in p for p in problems)
+    assert any("CLARA_BASE_URL" in p for p in problems)
 
 
 def test_unknown_provider_is_reported():

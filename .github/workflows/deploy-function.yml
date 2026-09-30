@@ -1,0 +1,54 @@
+name: Deploy call-request function
+
+# Redeploys the call-request Azure Function whenever its code (or the hcm_agent package it
+# uses) changes. Needs the repository secret AZURE_FUNCTIONAPP_PUBLISH_PROFILE; see
+# docs/DEPLOY_AZURE.md. Without it, the deploy step is skipped.
+
+on:
+  push:
+    branches: [main, moving-resources-to-azure]
+    paths:
+      - "functions/**"
+      - "src/hcm_agent/**"
+      - "deploy/azure/package_function.py"
+      - ".github/workflows/deploy-function.yml"
+  workflow_dispatch:
+
+concurrency: deploy-function
+
+env:
+  FUNCTION_APP: ${{ vars.AZURE_FUNCTIONAPP_NAME || 'clara-hcm-agent-calls' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for the publish profile secret
+        id: secret
+        env:
+          PROFILE: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
+        run: |
+          if [ -n "$PROFILE" ]; then echo "present=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::AZURE_FUNCTIONAPP_PUBLISH_PROFILE isn't set; skipping deploy."; fi
+
+      - uses: actions/checkout@v4
+        if: steps.secret.outputs.present == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.secret.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Build the function package
+        if: steps.secret.outputs.present == 'true'
+        run: python deploy/azure/package_function.py build/function
+
+      - name: Deploy to Azure Functions
+        if: steps.secret.outputs.present == 'true'
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ env.FUNCTION_APP }}
+          package: build/function
+          sku: flexconsumption
+          remote-build: true
+          publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }}
