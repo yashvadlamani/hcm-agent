@@ -2,3 +2,6 @@ anthropic
 python-dotenv
 twilio
 flask
+
+# Testing
+pytest

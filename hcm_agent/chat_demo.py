@@ -1,9 +1,15 @@
-#!/usr/bin/env python3
-"""Test script to run a sample HCM voice call."""
+"""Chat with Clara in the terminal, no phone needed.
 
-import os
+Usage:
+    python -m hcm_agent.chat_demo interactive   # you type as the patient
+    python -m hcm_agent.chat_demo guardrails    # send risky messages to check the guardrails
+    python -m hcm_agent.chat_demo demo          # print a scripted sample conversation (no API calls)
+"""
+
 from dotenv import load_dotenv
-from hcm_agent import HCMVoiceAgent, MockVoiceInterface, run_interactive_call
+
+from .agent import HCMVoiceAgent
+from .mock_voice import MockVoiceInterface, run_interactive_call
 
 # Load environment variables
 load_dotenv()

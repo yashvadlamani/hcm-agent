@@ -12,7 +12,7 @@ Meet **Clara**, a virtual assistant that calls patients on behalf of their healt
 - 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
 - 💬 **Run without a phone.** Text-only test modes let you chat with Clara or check the guardrails from the terminal.
 
-**[→ Getting Started: setup and your first test call →](./GETTING_STARTED.md)**
+**[→ Getting Started: setup and your first test call →](./docs/GETTING_STARTED.md)**
 
 > ⚠️ This is a development prototype. It is **not yet HIPAA-compliant** and must not be used with real patient data. The capabilities below describe the target design.
 
@@ -30,7 +30,7 @@ Meet **Clara**, a virtual assistant that calls patients on behalf of their healt
 
 ## Documentation
 
-**[→ View the complete System Design & Implementation Guide →](./DESIGN.md)**
+**[→ View the complete System Design & Implementation Guide →](./docs/DESIGN.md)**
 
 The guide covers three major areas:
 
@@ -108,9 +108,48 @@ Post-Call Execution (tools, escalations, logging)
 
 ## Getting Started
 
-**[→ Setup and test-call guide →](./GETTING_STARTED.md)**
+**[→ Setup and test-call guide →](./docs/GETTING_STARTED.md)**
 
 The guide covers what works today, how a call flows through the app, setting up Claude, Twilio and ngrok, and placing your first test call.
+
+### Quick reference
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env                           # then fill in your keys
+
+python -m hcm_agent.chat_demo interactive      # chat with Clara in the terminal
+python -m hcm_agent.phone_server               # start the phone server (then run: ngrok http 5000)
+python -m hcm_agent.place_call --url https://<ngrok-address> --to +1XXXXXXXXXX --name <FirstName>
+```
+
+## Project Structure
+
+```
+hcm-agent/
+├── hcm_agent/              # Application package
+│   ├── agent.py            # Conversation logic and the Claude call
+│   ├── guardrails.py       # Safety checks (diagnosis, advice, medication changes, emergencies)
+│   ├── prompts.py          # System prompts
+│   ├── phone_server.py     # Twilio webhook server for live calls
+│   ├── place_call.py       # Places an outbound test call
+│   ├── chat_demo.py        # Terminal chat with Clara (no phone needed)
+│   └── mock_voice.py       # Terminal "call" interface used by chat_demo
+├── tests/                  # Automated tests (no API calls or phone needed)
+├── docs/
+│   ├── GETTING_STARTED.md  # Setup and test-call guide
+│   └── DESIGN.md           # Full target architecture
+├── requirements.txt
+└── .env.example            # Template for keys and settings
+```
+
+## Testing
+
+```bash
+python -m pytest
+```
+
+The tests cover the guardrails and the phone server's call flow. They use a stand-in for Claude, so they run in seconds and cost nothing.
 
 ## Compliance & Security
 
@@ -124,85 +163,16 @@ The guide covers what works today, how a call flows through the app, setting up 
 - [ ] Configure DNC/TCPA compliance checks
 - [ ] Test emergency escalation flows
 
-See [DESIGN.md](./DESIGN.md#hipaa--compliance-checklist) for the full compliance checklist.
-
-## Code Examples
-
-### Ingesting an ML Flag
-```python
-from hcm_agent.ml_pipeline import ingestMLFlag
-
-flag = {
-    "patient_id": "PT_123456",
-    "risk_score": 0.87,
-    "top_5_drivers": [
-        {"driver": "HbA1c > 7.5%", "impact": 0.32},
-        {"driver": "BP > 140/90", "impact": 0.21},
-        # ...
-    ]
-}
-
-result = await ingestMLFlag(flag)
-# Output: {"status": "queued", "session_id": "sess_..."}
-```
-
-### Building the System Prompt
-```python
-from hcm_agent.prompts import build_system_prompt
-
-prompt = build_system_prompt(
-    patient_context=patient,
-    risk_drivers=flag["top_5_drivers"],
-    approved_docs=retrieved_documents
-)
-```
-
-### RAG Retrieval
-```python
-from hcm_agent.rag import RAGRetriever
-
-retriever = RAGRetriever(vector_db, document_store)
-docs = await retriever.retrieve_safe(
-    query="diabetes management",
-    patient_risk_drivers=risk_drivers,
-    max_docs=5
-)
-```
-
-## Testing
-
-```bash
-# Run unit tests
-pytest tests/unit
-
-# Run integration tests (requires test DB)
-pytest tests/integration
-
-# Test compliance checks
-pytest tests/compliance
-
-# Load test the voice pipeline
-python -m hcm_agent.stress_test --concurrent_calls 10 --duration 5m
-```
-
-## Monitoring & Alerts
-
-The system includes built-in monitoring for:
-
-- **Call Latency:** Alert if round-trip > 2s
-- **Escalation Rate:** Track % of calls requiring human intervention
-- **Patient Satisfaction:** Monitor CSAT scores
-- **Compliance:** Daily checks for encryption, DNC updates, audit log integrity
-- **Error Rates:** Alert on tool execution failures
-
-See the deployment guide for Datadog/New Relic integration.
+See [DESIGN.md](./docs/DESIGN.md#hipaa--compliance-checklist) for the full compliance checklist.
 
 ## Contributing
 
 Before contributing, review:
-1. [DESIGN.md](./DESIGN.md) for architecture
+1. [DESIGN.md](./docs/DESIGN.md) for architecture
 2. HIPAA compliance guidelines
 3. The prompt engineering section for safety considerations
+
+Run `python -m pytest` before opening a pull request.
 
 ## License
 
@@ -211,7 +181,7 @@ Proprietary – Healthcare Confidential
 ## Support
 
 For technical questions or issues:
-- Review the [full design guide](./DESIGN.md)
+- Review the [full design guide](./docs/DESIGN.md)
 - Check existing issues on GitHub
 - Contact the development team
 

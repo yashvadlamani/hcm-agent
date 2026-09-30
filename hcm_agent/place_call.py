@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
 """Place an outbound Twilio call that talks to the Clara phone server.
 
 Usage:
-    python phone_call.py --url https://<your-ngrok-domain> --to +17044305315 --name Yash
+    python -m hcm_agent.place_call --url https://<your-ngrok-domain> --to +1XXXXXXXXXX --name <FirstName>
 """
 
 import argparse
