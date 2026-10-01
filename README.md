@@ -6,7 +6,7 @@ An AI-powered voice outreach system designed to engage high-risk patients with p
 
 Meet **Clara**, a virtual assistant that calls patients on behalf of their health insurance care team. The current prototype can:
 
-- 📞 **Hold a live phone conversation.** Clara calls a patient via Twilio, greets them, listens, and responds naturally, turn by turn.
+- 📞 **Hold a live phone conversation.** Clara calls a patient through Azure Communication Services, greets them, listens, and responds naturally, turn by turn.
 - 🧠 **Generate replies with Claude or Azure OpenAI.** Uses Claude (`claude-opus-5`) or a model deployed in Azure AI Foundry, such as `gpt-5-mini`, chosen with the `LLM_PROVIDER` setting. Replies are based on the patient's name and risk drivers.
 - 🛡️ **Enforce safety guardrails.** Clara never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
 - 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
@@ -18,11 +18,11 @@ Meet **Clara**, a virtual assistant that calls patients on behalf of their healt
 
 ## Current workflow
 
-![Current workflow: a JSON upload to Azure storage triggers an Azure Function, which asks Twilio to call the patient; the Clara server on App Service runs the conversation with Azure OpenAI and guardrails.](./docs/images/current-workflow.svg)
+![Current workflow: a JSON upload to Azure storage triggers an Azure Function, which asks Azure Communication Services to call the patient; the Clara server on App Service runs the conversation with Azure OpenAI and guardrails.](./docs/images/current-workflow.svg)
 
 1. **Upload a request.** A care team member uploads a JSON file to the `call-requests` storage container, in the `incoming/` folder.
-2. **The Azure Function checks it.** It confirms the number is on the allow-list, the file is valid, and the hourly limit isn't reached. Then it asks Twilio to dial.
-3. **Twilio calls the patient** and carries the conversation both ways.
+2. **The Azure Function checks it.** It confirms the number is on the allow-list, the file is valid, and the hourly limit isn't reached. Then it asks Azure Communication Services (ACS) to dial.
+3. **ACS calls the patient** from Clara's phone number, speaks Clara's words, and turns the patient's speech into text.
 4. **The Clara server runs the conversation.** Replies come from Azure OpenAI and pass through safety guardrails before Clara speaks them.
 5. **Watch it live** on the `/live` page.
 
@@ -101,10 +101,10 @@ Post-Call Execution (tools, escalations, logging)
 
 | Component | Recommended Stack |
 |-----------|-------------------|
-| **Voice Infrastructure** | Twilio / Telnyx (with BAA) |
-| **Speech Recognition** | Deepgram / Google Cloud Speech |
-| **Text-to-Speech** | ElevenLabs / Azure Cognitive Services |
-| **LLM Agent** | Claude API |
+| **Voice Infrastructure** | Azure Communication Services (with Microsoft BAA) |
+| **Speech Recognition** | Azure AI Speech (through Azure Communication Services) |
+| **Text-to-Speech** | Azure AI Speech neural voices (through Azure Communication Services) |
+| **LLM Agent** | Claude API or Azure OpenAI |
 | **Vector DB (RAG)** | Pinecone / Weaviate |
 | **Caching** | Redis |
 | **Database** | PostgreSQL + encrypted storage |
@@ -140,7 +140,7 @@ Post-Call Execution (tools, escalations, logging)
 
 **[→ Setup and test-call guide →](./docs/GETTING_STARTED.md)**
 
-The guide covers what works today, how a call flows through the app, setting up Claude, Twilio and Azure, and placing your first test call.
+The guide covers what works today, how a call flows through the app, setting up the model, Azure Communication Services (Clara's phone number) and Azure, and placing your first test call.
 
 The Clara server runs on Azure App Service. See **[Deploying to Azure](./docs/DEPLOY_AZURE.md)** for deploying it and turning it on and off. Pushes to `main` redeploy the server and the call-request function automatically through GitHub Actions.
 
@@ -148,7 +148,7 @@ The Clara server runs on Azure App Service. See **[Deploying to Azure](./docs/DE
 
 ```bash
 pip install -e ".[dev]"      # installs the app, test tools and the clara-* commands
-cp .env.example .env         # then fill in your keys
+cp .env.example .env         # then fill in your keys, including the ACS_* phone settings
 
 # Deploy (or update) the Clara server on Azure App Service
 powershell -ExecutionPolicy Bypass -File .\deploy\azure\deploy.ps1 -AppName <your-app> -Location centralus
@@ -172,9 +172,9 @@ hcm-agent/
 │   │   ├── llm.py              # Model backends: Claude or Azure OpenAI (LLM_PROVIDER)
 │   │   ├── prompts.py          # System and emergency prompts
 │   │   └── guardrails.py       # Diagnosis, advice, medication-change and emergency checks
-│   ├── telephony/              # Everything Twilio talks to
-│   │   ├── server.py           # Webhook server for live calls, plus the /live page (clara-server)
-│   │   ├── outbound.py         # Places outbound calls (allow-list, wake-up, Twilio)
+│   ├── telephony/              # Phone calls through Azure Communication Services
+│   │   ├── server.py           # Receives ACS call events and runs each turn, plus /live (clara-server)
+│   │   ├── outbound.py         # Places outbound calls (allow-list, wake-up, ACS)
 │   │   ├── call_requests.py    # Validates JSON call requests for the Azure Function
 │   │   ├── live_feed.py        # In-memory event feed behind the live call view
 │   │   └── static/live.html    # Live call view
@@ -200,7 +200,7 @@ pytest          # the automated tests
 ruff check .    # code style
 ```
 
-GitHub runs both on every push and pull request. The tests cover settings checks, the guardrails, both model backends and the phone server's call flow. They use stand-ins for Claude, Azure OpenAI and Twilio, so they run in seconds and cost nothing.
+GitHub runs both on every push and pull request. The tests cover settings checks, the guardrails, both model backends and the phone server's call flow. They use stand-ins for Claude, Azure OpenAI and Azure Communication Services, so they run in seconds and cost nothing.
 
 ## Compliance & Security
 

@@ -1,6 +1,6 @@
 anthropic
 openai
 python-dotenv
-twilio
+azure-communication-callautomation
 flask
 gunicorn

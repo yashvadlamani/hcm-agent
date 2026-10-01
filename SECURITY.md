@@ -11,14 +11,14 @@ Clara is a **prototype**. It isn't HIPAA-compliant and must not be used with rea
 
 ## If a secret leaks
 
-1. **Rotate it immediately** at the provider (Anthropic Console, Twilio Console, Azure portal). Removing it from Git doesn't make it safe; anyone who cloned or viewed the repo may already have it.
+1. **Rotate it immediately** at the provider: the Anthropic Console, or the Azure portal for Azure OpenAI and Azure Communication Services keys (resource → **Keys** → regenerate). Removing it from Git doesn't make it safe; anyone who cloned or viewed the repo may already have it.
 2. Update `.env` and re-run the deploy scripts. They save the new value to Key Vault, and the apps reload it.
 3. If it was committed, remove it from the history (for example with `git filter-repo`), force-push, and ask everyone with a clone to delete it and clone again.
 4. Close the secret-scanning alert on GitHub once the old value is revoked.
 
 ## What the app protects today
 
-- **Twilio webhooks** need a secret key in the URL (`PHONE_WEBHOOK_KEY`) and your Twilio Account SID. A Twilio signature is verified whenever one is sent (paid accounts sign every request).
+- **Call events** from Azure Communication Services need the secret key in the callback URL (`PHONE_WEBHOOK_KEY`). Before production, also validate the signed token (JWT) ACS sends with each event.
 - **The live call view** (`/live`) is local-only unless `LIVE_VIEW_PASSWORD` is set, and then it needs that password over HTTPS.
 - All call text is shown as plain text in the live view, never as HTML.
 

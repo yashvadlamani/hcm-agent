@@ -16,14 +16,13 @@ from hcm_agent.telephony.outbound import (
 from test_config import VALID
 
 
-class FakeTwilio:
+class FakeACS:
     def __init__(self):
         self.created = []
-        self.calls = SimpleNamespace(create=self._create)
 
-    def _create(self, **kwargs):
+    def create_call(self, **kwargs):
         self.created.append(kwargs)
-        return SimpleNamespace(sid="CAfake123")
+        return SimpleNamespace(call_connection_id="call-fake-123")
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -45,19 +44,21 @@ def test_empty_allow_list_allows_any_number():
     check_allowed(dataclasses.replace(VALID, allowed_call_numbers=()), "+15559999999")
 
 
-def test_place_call_uses_trial_safe_parameters():
-    twilio = FakeTwilio()
-    sid = place_call(VALID, "https://clara.example.net/", "+15555550100", "Yash",
-                     ["HbA1c above 7.5%", "Missed refills"], client=twilio, wake=False)
+def test_place_call_asks_acs_to_dial_with_a_callback_to_clara():
+    acs = FakeACS()
+    call_id = place_call(VALID, "https://clara.example.net/", "(555) 555-0100", "Yash",
+                         ["HbA1c above 7.5%", "Missed refills"], client=acs, wake=False)
 
-    assert sid == "CAfake123"
-    request = twilio.created[0]
-    assert set(request) == {"to", "from_", "url"}  # trial accounts reject anything else
-    url = urlparse(request["url"])
-    assert url.netloc == "clara.example.net"
-    assert url.path == f"/t/{VALID.phone_webhook_key}/voice"
+    assert call_id == "call-fake-123"
+    request = acs.created[0]
+    assert request["target_participant"].properties["value"] == "+15555550100"
+    assert request["source_caller_id_number"].properties["value"] == VALID.acs_phone_number
+    assert request["cognitive_services_endpoint"] == VALID.acs_cognitive_services_endpoint
+    url = urlparse(request["callback_url"])
+    assert url.scheme == "https" and url.netloc == "clara.example.net"
+    assert url.path == f"/acs/{VALID.phone_webhook_key}/events"
     [context] = parse_qs(url.query)["ctx"]
-    assert re.fullmatch(r"[A-Za-z0-9_-]+", context)  # nothing Twilio could mangle
+    assert re.fullmatch(r"[A-Za-z0-9_-]+", context)  # URL-safe, nothing to escape
     assert decode_call_context(context) == ("Yash", ["HbA1c above 7.5%", "Missed refills"])
 
 
@@ -76,8 +77,8 @@ def test_malformed_call_context_falls_back(value):
     assert decode_call_context(value) == ("there", [])
 
 
-def test_place_call_refuses_before_contacting_twilio():
-    twilio = FakeTwilio()
+def test_place_call_refuses_before_contacting_acs():
+    acs = FakeACS()
     with pytest.raises(CallNotAllowed):
-        place_call(VALID, "https://clara.example.net", "+15559999999", client=twilio, wake=False)
-    assert twilio.created == []
+        place_call(VALID, "https://clara.example.net", "+15559999999", client=acs, wake=False)
+    assert acs.created == []

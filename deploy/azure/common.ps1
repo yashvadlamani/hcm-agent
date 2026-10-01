@@ -7,9 +7,12 @@ app a Key Vault reference instead of the value, so the apps read them from the v
 
 # Settings that are secrets: stored in Key Vault, never as plain app settings.
 $SecretSettings = @(
-    "ANTHROPIC_API_KEY", "AZURE_OPENAI_API_KEY", "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY", "AZURE_OPENAI_API_KEY", "ACS_CONNECTION_STRING",
     "PHONE_WEBHOOK_KEY", "LIVE_VIEW_PASSWORD", "CallRequestsStorage"
 )
+
+# Settings from earlier versions (Twilio) that the deploy scripts remove from the apps.
+$RetiredSettings = @("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER")
 
 # Call the Azure CLI's Python directly: az.cmd goes through cmd.exe, which breaks on characters
 # like '&' in arguments.
@@ -116,6 +119,10 @@ function Sync-VaultSecrets([string]$Vault, [hashtable]$Values) {
     # Changing a setting makes the app re-read every secret right away instead of within 24 hours.
     $references += @{ name = "SECRETS_SYNCED_AT"; value = (Get-Date).ToUniversalTime().ToString("o"); slotSetting = $false }
     return $references
+}
+
+function Remove-RetiredSettings([string]$Kind, [string]$ResourceGroup, [string]$App) {
+    Invoke-Az $Kind config appsettings delete -g $ResourceGroup -n $App --setting-names @RetiredSettings -o none | Out-Null
 }
 
 function Write-AppSettings([string]$Kind, [string]$ResourceGroup, [string]$App, [array]$AppSettings) {

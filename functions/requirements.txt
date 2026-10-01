@@ -1,4 +1,4 @@
 azure-functions
 azure-storage-blob
-twilio
+azure-communication-callautomation
 python-dotenv

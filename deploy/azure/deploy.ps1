@@ -1,6 +1,6 @@
 <#
 Deploys the Clara phone server to Azure App Service (Linux, Python 3.12).
-Secrets from .env (API keys, Twilio token, webhook key, live-view password) are stored in an
+Secrets from .env (API keys, ACS connection string, webhook key, live-view password) are stored in an
 Azure Key Vault; the app reads them through Key Vault references. Safe to re-run: use it again
 to push code or .env setting changes (including new key values).
 Code changes on main also deploy automatically through GitHub Actions
@@ -25,7 +25,7 @@ $plan = "$AppName-plan"
 
 $settings = Read-DotEnv (Join-Path $root ".env")
 $provider = if ($settings["LLM_PROVIDER"]) { $settings["LLM_PROVIDER"].ToLower() } else { "anthropic" }
-$required = @("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "PHONE_WEBHOOK_KEY", "LIVE_VIEW_PASSWORD")
+$required = @("ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER", "ACS_COGNITIVE_SERVICES_ENDPOINT", "PHONE_WEBHOOK_KEY", "LIVE_VIEW_PASSWORD")
 $required += switch ($provider) {
     "anthropic" { @("ANTHROPIC_API_KEY") }
     "azure_openai" { @("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT") }
@@ -36,7 +36,7 @@ if ($missing.Count -gt 0) { throw "Set these in .env before deploying: $($missin
 
 # Optional settings are sent only when present. AZURE_OPENAI_REASONING_EFFORT is sent even when
 # empty, because empty deliberately turns reasoning effort off (for non-reasoning models).
-$optional = "LLM_PROVIDER", "ANTHROPIC_MODEL"
+$optional = "LLM_PROVIDER", "ANTHROPIC_MODEL", "ACS_VOICE"
 $present = @(($required + $optional) | Where-Object { $settings[$_] })
 # Every secret in .env goes to the vault, including the unused provider's key, so switching
 # LLM_PROVIDER later needs no other change.
@@ -65,6 +65,7 @@ $vaultId = Initialize-Vault $Vault $ResourceGroup
 Grant-AppVaultAccess webapp $ResourceGroup $AppName $vaultId
 $appSettings += Sync-VaultSecrets $Vault $secrets
 Write-AppSettings webapp $ResourceGroup $AppName $appSettings
+Remove-RetiredSettings webapp $ResourceGroup $AppName
 
 $alwaysOn = if ($Sku -eq "F1") { "false" } else { "true" }
 Write-Host "5/6 Startup command, Always On ($alwaysOn), HTTPS only"

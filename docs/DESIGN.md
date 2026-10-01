@@ -194,11 +194,11 @@ Real-time voice conversations require sub-500ms latency. Here's how to achieve i
 
 | Stage | Target (ms) | Strategy |
 |-------|-------------|----------|
-| Audio capture → ASR | 200–300 | Stream ASR (e.g., Google Cloud Speech, Deepgram) |
+| Audio capture → ASR | 200–300 | Stream ASR (e.g., Azure AI Speech, Google Cloud Speech, Deepgram) |
 | Intent extraction | 100–150 | Cached embeddings, lightweight classifier |
 | RAG retrieval | 150–200 | Pre-compute vs. real-time trade-off |
 | LLM inference (streaming) | 300–500 | Token streaming (first token latency critical) |
-| TTS synthesis | 200–300 | Streaming TTS (e.g., ElevenLabs, Google TTS) |
+| TTS synthesis | 200–300 | Streaming TTS (e.g., Azure AI Speech, ElevenLabs, Google TTS) |
 | **Total Round-Trip** | **< 1.5s** | Parallel + caching |
 
 #### Pre-computation Strategy
@@ -964,7 +964,7 @@ async def handle_dnc_request(patient_id, phone_number):
 - **HIPAA Encryption:**
   - All data in transit: TLS 1.2+
   - Data at rest: AES-256 encryption
-  - Audio calls: HIPAA-compliant carriers (e.g., Twilio, Vonage with BAA)
+  - Audio calls: Azure Communication Services, covered by Microsoft's BAA
 - **Audit Logging:**
   - Log all PHI access with user, timestamp, action
   - Maintain logs for 6+ years
@@ -1040,9 +1040,9 @@ Recommended stack for production:
 
 | Component | Technology | Rationale |
 |-----------|-----------|-----------|
-| **Voice Infrastructure** | Twilio + Telnyx (with BAA) | HIPAA-compliant, redundant, high availability |
-| **ASR (Speech-to-Text)** | Deepgram / Google Cloud Speech + on-prem fallback | Low latency, handles medical terminology |
-| **TTS (Text-to-Speech)** | ElevenLabs (HIPAA compliant) or Azure Cognitive Services | Natural voice, streaming support |
+| **Voice Infrastructure** | Azure Communication Services (with Microsoft BAA) | HIPAA-eligible, runs alongside the rest of Clara in Azure |
+| **ASR (Speech-to-Text)** | Azure AI Speech through ACS (current); custom speech models for medical terms | Same Azure tenant and BAA as the rest of Clara |
+| **TTS (Text-to-Speech)** | Azure AI Speech neural voices through ACS (current) | Natural voice, no extra vendor |
 | **LLM Agent** | Claude API (with system prompts) + fine-tuned fallback | High reasoning, cost-effective, safety-oriented |
 | **Vector DB (RAG)** | Pinecone / Weaviate (self-hosted option for data control) | Fast retrieval, metadata filtering, compliance |
 | **Caching Layer** | Redis (self-hosted + replicated) | Sub-100ms latency, pre-loaded context |

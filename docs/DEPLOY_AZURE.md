@@ -1,6 +1,6 @@
 # Deploying Clara to Azure
 
-This guide puts the Clara phone server on **Azure App Service**, so it runs in the cloud instead of on your laptop. You get a permanent public address like `https://clara-yourname.azurewebsites.net` that Twilio can reach during calls, and anyone with the password can open the live call view.
+This guide puts the Clara phone server on **Azure App Service**, so it runs in the cloud instead of on your laptop. You get a permanent public address like `https://clara-yourname.azurewebsites.net` that Azure Communication Services can reach during calls, and anyone with the password can open the live call view.
 
 > ⚠️ **Test data only.** An Azure free trial is not covered by a Business Associate Agreement (BAA), so it is not HIPAA-compliant. Don't use it with real patients. See [Before production](./GETTING_STARTED.md#8-before-production).
 
@@ -10,6 +10,16 @@ This guide puts the Clara phone server on **Azure App Service**, so it runs in t
 |---|---|
 | App Service plan `<app>-plan` (Linux, **Free F1** by default) | The server the app runs on |
 | Web app `<app>` (Python 3.12) | The Clara server, with HTTPS at `https://<app>.azurewebsites.net` |
+| Key Vault `clara-kv-<id>` | Holds the secrets for the apps (see [Where the secrets live](#where-the-secrets-live)) |
+
+The deploy script expects two resources you create once (see [Getting Started → Step 3](./GETTING_STARTED.md#step-3-set-up-azure-communication-services-one-time)):
+
+| Resource | Purpose |
+|---|---|
+| Azure Communication Services `<acs-name>` | Clara's phone number; places the calls and sends call events to the server |
+| Azure AI Services resource | Clara's voice and speech recognition on calls (the same resource can host Azure OpenAI) |
+
+The [upload-to-call feature](#placing-calls-by-uploading-a-file) adds a storage account and a Function app.
 
 ### Which tier?
 
@@ -73,11 +83,11 @@ On your laptop, Clara reads everything from `.env`, as before. In Azure, the sec
 | Secret setting | Key Vault secret |
 |---|---|
 | `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` | `ANTHROPIC-API-KEY`, `AZURE-OPENAI-API-KEY` |
-| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | `TWILIO-ACCOUNT-SID`, `TWILIO-AUTH-TOKEN` |
+| `ACS_CONNECTION_STRING` | `ACS-CONNECTION-STRING` |
 | `PHONE_WEBHOOK_KEY`, `LIVE_VIEW_PASSWORD` | `PHONE-WEBHOOK-KEY`, `LIVE-VIEW-PASSWORD` |
 | `CallRequestsStorage` (Function only) | `CallRequestsStorage` |
 
-The web app and the Function app each have their own Azure identity (a managed identity) with read-only access to the vault. Their settings hold references like `@Microsoft.KeyVault(VaultName=…;SecretName=TWILIO-AUTH-TOKEN)` rather than the values. Non-secret settings, such as the phone number and the model endpoint, stay as plain app settings.
+The web app and the Function app each have their own Azure identity (a managed identity) with read-only access to the vault. Their settings hold references like `@Microsoft.KeyVault(VaultName=…;SecretName=ACS-CONNECTION-STRING)` rather than the values. Non-secret settings, such as the phone number and the model endpoint, stay as plain app settings.
 
 **Changing a key:** update it in `.env` and re-run the deploy script, or `deploy_function.ps1` for the Function's settings. The script saves the new value as a new version of the secret and makes the app reload it right away.
 
@@ -92,7 +102,7 @@ Optional arguments: `-Sku B1` (default `F1`), `-Location westus2` (default `east
 
 ## 6. Place a test call
 
-Point the call at your Azure address:
+Point the call at your Azure address. With an ACS trial number, `--to` must be one of the numbers you verified for it:
 
 ```powershell
 clara-call --url https://<app>.azurewebsites.net --to +1XXXXXXXXXX --name <FirstName>
@@ -100,7 +110,7 @@ clara-call --url https://<app>.azurewebsites.net --to +1XXXXXXXXXX --name <First
 
 On the Free tier, if the app has been idle you'll see *"Waking the server…"* for up to a minute before the phone rings. That's expected.
 
-Keep `/live` open to watch the call as it happens. The Twilio trial-account limits in the [Getting Started guide](./GETTING_STARTED.md#twilio-trial-account-limits) still apply.
+Keep `/live` open to watch the call as it happens. The trial phone number limits in the [Getting Started guide](./GETTING_STARTED.md#acs-trial-phone-number-limits) still apply.
 
 ## Placing calls by uploading a file
 
@@ -110,7 +120,7 @@ An Azure Function can place calls for you: upload a small JSON file to a storage
 request.json ──upload──▶ storage container call-requests/incoming/
                               │  (Event Grid: new .json file)
                               ▼
-                     Function app ──checks──▶ Twilio call to the Clara server
+                     Function app ──checks──▶ ACS call, events to the Clara server
                               │
                               ▼
             call-requests/processed/ or call-requests/failed/ (the result)
@@ -155,7 +165,7 @@ Upload it to `incoming/`, either in the Azure portal (**Storage account → Cont
 az storage blob upload --account-name <storage-account> --auth-mode key -c call-requests -n incoming/request.json -f request.json
 ```
 
-The storage account's name is printed at the end of `deploy_function.ps1`. The phone rings within about a minute; the Clara server must be on. The request then moves to `processed/` (with the Twilio call SID) or `failed/` (with the reason).
+The storage account's name is printed at the end of `deploy_function.ps1`. The phone rings within about a minute; the Clara server must be on. The request then moves to `processed/` (with the ACS call connection ID) or `failed/` (with the reason).
 
 The function places a call only when all of these hold:
 - The file is valid JSON under 10 KB, with a phone number in `to`.
@@ -265,6 +275,31 @@ Clara can generate replies with **Claude** (Anthropic's API) or with a model you
 
 Azure OpenAI usage is billed to your Azure subscription. Check **Cost Management + Billing** to confirm it counts against your trial credit.
 
+## Phone calls: Azure Communication Services
+
+Clara's calls go through **Azure Communication Services (ACS)** Call Automation:
+
+1. `clara-call` or the upload Function asks ACS to dial the patient from `ACS_PHONE_NUMBER`. It passes a callback address on the Clara server that includes the secret `PHONE_WEBHOOK_KEY`.
+2. ACS sends call events to that address: the call connected, the patient's words (`RecognizeCompleted`), silence (`RecognizeFailed`), and the call ending.
+3. For each event, the server tells ACS what to do next: speak Clara's words and listen again, or say goodbye and hang up.
+
+Speech-to-text and text-to-speech run on the Azure AI Services resource set in `ACS_COGNITIVE_SERVICES_ENDPOINT`. The ACS resource's managed identity needs the **Cognitive Services User** role on it.
+
+| Setting in `.env` | What it is |
+|---|---|
+| `ACS_CONNECTION_STRING` | ACS resource → **Settings → Keys**. A secret: the deploy scripts store it in Key Vault |
+| `ACS_PHONE_NUMBER` | The number Clara calls from |
+| `ACS_COGNITIVE_SERVICES_ENDPOINT` | The AI Services resource's endpoint, `https://<name>.cognitiveservices.azure.com` |
+| `ACS_VOICE` (optional) | Clara's voice. Any Azure neural voice, for example `en-US-AvaNeural`. Default `en-US-JennyNeural` |
+
+**Trial phone number:** one free US toll-free number per subscription. It lasts 30 days and can call only the numbers you verify for it (up to 3). It has 60 outbound minutes in total, and each call lasts at most 5 minutes. Check what's left under ACS → **Phone numbers** → the number → **Trial details**.
+
+**A permanent number:** buy one under ACS → **Phone numbers** → **Get**. This needs a pay-as-you-go subscription. Put the new number in `ACS_PHONE_NUMBER` and re-run both deploy scripts. A purchased number can call any number, so keep `ALLOWED_CALL_NUMBERS` limited to approved test numbers.
+
+**Costs:** after the trial, ACS bills per minute of calling plus a monthly fee for the number. Speech is billed to the AI Services resource. Both come out of your Azure credit.
+
+**Rotating the ACS key:** in the ACS resource, open **Settings → Keys** and regenerate the key. Copy the new connection string into `.env`, then re-run both deploy scripts.
+
 ## Watching the server logs
 
 ```powershell
@@ -286,14 +321,16 @@ You'll see the same output a local terminal shows: each patient turn, Clara's re
 | `/` shows an Azure "Application Error" page | Check the logs (above). Usually a missing setting: re-run the deploy script after fixing `.env` |
 | A setting shows a red *Key vault reference* error in the portal | The app's identity can't read the vault yet (new access can take a few minutes). Re-run the deploy script |
 | `/live` keeps asking for a password | Use the exact `LIVE_VIEW_PASSWORD` from the `.env` you deployed with |
-| Call says *"We could not reach your TwiML server"* | Make sure the app is on (`start.ps1`), `/` loads, and `--url` matches your Azure address |
+| The phone rings but Clara never speaks | Make sure the app is on (`start.ps1`), `/` loads, and `--url` matches your Azure address. The log should show `ACS CallConnected` |
 | A deploy workflow fails with an authentication error | The publish profile is out of date. Re-run the deploy script with `-PublishProfilePath` and update the GitHub secret |
 | An uploaded request stays in `incoming/` | Check the function's logs: **Function app → call_request → Invocations**. Re-run `deploy_function.ps1` to recreate the trigger |
-| The call gets "Sorry, this call session has expired" | The app restarted mid-call (for example, after a deploy). Place a new call |
+| Clara goes silent in the middle of a call | The app restarted mid-call (for example, after a deploy), so it lost the call. Hang up and place a new call |
+| Clara speaks but never hears you (the log shows `RecognizeFailed`) | ACS can't use the AI Services resource for speech. Check `ACS_COGNITIVE_SERVICES_ENDPOINT` and that the ACS identity has **Cognitive Services User** on that resource |
+| Placing a call fails right away | With a trial number, the number you're calling must be verified, and the trial must still have days and minutes left (ACS → **Phone numbers** → the number → **Trial details**) |
 
 ## Removing everything
 
-This deletes the app, the plan, the function, the storage account, the Key Vault and the resource group permanently. The vault stays recoverable for 7 days, and its name can't be reused until then:
+This deletes the app, the plan, the function, the storage account, the Key Vault, the Communication Services resource (releasing its phone number) and the resource group permanently. The vault stays recoverable for 7 days, and its name can't be reused until then:
 
 ```powershell
 az group delete --name clara-rg
@@ -304,4 +341,4 @@ az group delete --name clara-rg
 - Your keys are stored in Azure Key Vault. The apps read them with their own identities and have read-only access. `.env` stays on your laptop and isn't uploaded.
 - The live view uses a single shared password over HTTPS. That's fine for a demo. For real use, replace it with company sign-in (Microsoft Entra ID).
 - The call-requests container is private. Anyone who can write to it can make Clara call the numbers in `ALLOWED_CALL_NUMBERS`, so keep that list short.
-- Twilio requests are checked using the secret key in the webhook address and your Account SID. On a paid Twilio account, make signature checking mandatory as well.
+- Call events from Azure Communication Services are checked using the secret key in the callback address. For production, also validate the signed token ACS sends with each event.

@@ -102,7 +102,7 @@
 </main>
 
 <script>
-const calls = new Map();   // callSid -> { name, drivers, started, ended, status, events: [] }
+const calls = new Map();   // call ID -> { name, drivers, started, ended, status, events: [] }
 let selected = null;
 let userPicked = false;
 let lastEventId = 0;   // the server replays its backlog on reconnect; skip what we've already shown
