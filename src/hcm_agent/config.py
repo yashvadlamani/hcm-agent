@@ -26,9 +26,10 @@ class Settings:
     azure_openai_api_key: str
     azure_openai_deployment: str
     azure_openai_reasoning_effort: str
-    twilio_account_sid: str
-    twilio_auth_token: str
-    twilio_phone_number: str
+    acs_connection_string: str
+    acs_phone_number: str
+    acs_cognitive_services_endpoint: str
+    acs_voice: str
     phone_webhook_key: str
     live_view_password: str
     port: int
@@ -46,9 +47,10 @@ def load() -> Settings:
         azure_openai_api_key=env("AZURE_OPENAI_API_KEY", ""),
         azure_openai_deployment=env("AZURE_OPENAI_DEPLOYMENT", ""),
         azure_openai_reasoning_effort=env("AZURE_OPENAI_REASONING_EFFORT", "minimal").strip(),
-        twilio_account_sid=env("TWILIO_ACCOUNT_SID", ""),
-        twilio_auth_token=env("TWILIO_AUTH_TOKEN", ""),
-        twilio_phone_number=env("TWILIO_PHONE_NUMBER", ""),
+        acs_connection_string=env("ACS_CONNECTION_STRING", ""),
+        acs_phone_number=env("ACS_PHONE_NUMBER", ""),
+        acs_cognitive_services_endpoint=env("ACS_COGNITIVE_SERVICES_ENDPOINT", "").rstrip("/"),
+        acs_voice=env("ACS_VOICE", "en-US-JennyNeural"),
         phone_webhook_key=env("PHONE_WEBHOOK_KEY", ""),
         live_view_password=env("LIVE_VIEW_PASSWORD", ""),
         port=int(env("FLASK_PORT", "5000")),
@@ -73,8 +75,8 @@ def llm_problems(settings: Settings) -> list[str]:
 
 def server_problems(settings: Settings) -> list[str]:
     problems = llm_problems(settings)
-    if not settings.twilio_account_sid:
-        problems.append("TWILIO_ACCOUNT_SID is not set")
+    if not settings.acs_connection_string:
+        problems.append("ACS_CONNECTION_STRING is not set")
     if len(settings.phone_webhook_key) < 20:
         problems.append("PHONE_WEBHOOK_KEY must be a random value of at least 20 characters")
     return problems
@@ -82,9 +84,9 @@ def server_problems(settings: Settings) -> list[str]:
 
 def call_problems(settings: Settings) -> list[str]:
     required = {
-        "TWILIO_ACCOUNT_SID": settings.twilio_account_sid,
-        "TWILIO_AUTH_TOKEN": settings.twilio_auth_token,
-        "TWILIO_PHONE_NUMBER": settings.twilio_phone_number,
+        "ACS_CONNECTION_STRING": settings.acs_connection_string,
+        "ACS_PHONE_NUMBER": settings.acs_phone_number,
+        "ACS_COGNITIVE_SERVICES_ENDPOINT": settings.acs_cognitive_services_endpoint,
         "PHONE_WEBHOOK_KEY": settings.phone_webhook_key,
     }
     return [f"{name} is not set" for name, value in required.items() if not value]

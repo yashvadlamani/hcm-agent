@@ -1,234 +1,260 @@
-"""Twilio phone conversation server for Clara.
+"""Clara's phone conversation server, driven by Azure Communication Services (ACS) Call Automation.
 
-Twilio does speech-to-text and text-to-speech; each turn it posts what the
-patient said here, HCMVoiceAgent replies (guardrails applied), and Twilio
-speaks the reply and listens again.
+ACS dials the patient (see outbound.py) and posts call events here. Each turn, Clara speaks with
+ACS text-to-speech and listens with ACS speech recognition. When the patient's words arrive,
+HCMVoiceAgent replies (guardrails applied), and Clara speaks the reply and listens again.
 
-NOTE: Twilio trial/standard tier is for testing only. Before production, move
-to Twilio's HIPAA-eligible offering with a signed BAA.
+Events are acknowledged immediately and handled in the background, so a slow model reply never
+times out the call.
+
+NOTE: trial phone numbers are for testing only (30 days, 5-minute calls). Production needs a
+purchased number and Microsoft's BAA in place for HIPAA workloads.
 """
 
 import hmac
 import logging
 import re
+import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from azure.communication.callautomation import (
+    CallAutomationClient,
+    PhoneNumberIdentifier,
+    RecognizeInputType,
+    TextSource,
+)
 from flask import Flask, Response, abort, request, send_from_directory
-from twilio.request_validator import RequestValidator
-from twilio.twiml.voice_response import Gather, VoiceResponse
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .. import config
 from ..agent import HCMVoiceAgent
 from . import live_feed
-from .outbound import decode_call_context
+from .outbound import decode_call_context, to_e164
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 app = Flask(__name__, static_folder=None)
-# Azure App Service terminates HTTPS; trust its forwarded headers so request.url matches the URL Twilio signed.
+# Azure App Service terminates HTTPS; trust its forwarded headers.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 settings = config.load()
-validator = RequestValidator(settings.twilio_auth_token)
-ACCOUNT_SID = settings.twilio_account_sid
 WEBHOOK_KEY = settings.phone_webhook_key
 # When set (e.g. on Azure), /live asks for this password; when unset, /live is local-only.
 LIVE_VIEW_PASSWORD = settings.live_view_password
 for problem in config.server_problems(settings):
     logger.warning("Configuration problem: %s", problem)
-calls: dict[str, HCMVoiceAgent] = {}
-pending: dict[str, tuple[Future, str, float]] = {}
-executor = ThreadPoolExecutor(max_workers=4)
 
-VOICE = "Polly.Joanna"
-MAX_REPLY_WAIT_SECONDS = 25
-HOLD_SECONDS = 4.0
+VOICE = settings.acs_voice
+INITIAL_SILENCE_SECONDS = 8   # how long to wait for the patient to start speaking
+END_SILENCE_SECONDS = 2       # pause that marks the end of what they said
+MAX_SILENT_TURNS = 2          # re-ask once, then say goodbye
 DEFAULT_RISK_DRIVERS = ["HbA1c above 7.5%", "Missed medication refills"]
 GOODBYE = re.compile(r"\b(bye|goodbye|hang up|that's all|that is all)\b", re.IGNORECASE)
+EMERGENCY_LINES = (
+    "I'm really sorry you're going through this, and I want you to get help right away. "
+    "If this is a medical emergency, please hang up and call 9 1 1 now. "
+    "I'm also flagging this call for your care manager. Goodbye."
+)
+NO_INPUT_GOODBYE = "I didn't hear anything, so I'll let you go. Your care team will follow up. Goodbye."
 
 
-def twiml(response: VoiceResponse) -> Response:
-    return Response(str(response), mimetype="text/xml")
+@dataclass
+class CallState:
+    agent: HCMVoiceAgent
+    patient: PhoneNumberIdentifier
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    silent_turns: int = 0
 
 
-def authorize(key: str) -> None:
-    # Trial accounts send webhooks without X-Twilio-Signature, so the secret key in the
-    # URL path is the primary check; a signature is still verified whenever one is sent.
+calls: dict[str, CallState] = {}
+executor = ThreadPoolExecutor(max_workers=8)
+_client: CallAutomationClient | None = None
+
+
+def acs() -> CallAutomationClient:
+    global _client
+    if _client is None:
+        _client = CallAutomationClient.from_connection_string(settings.acs_connection_string)
+    return _client
+
+
+# ---- Call events from ACS ----
+
+@app.post("/acs/<key>/events")
+def acs_events(key):
+    # The secret key in the callback URL (known only to ACS and our own apps) authorizes events.
     if not hmac.compare_digest(key, WEBHOOK_KEY):
         abort(404)
-    if request.form.get("AccountSid") != ACCOUNT_SID:
-        logger.warning("Rejected request for a different Twilio account")
-        abort(403)
-    signature = request.headers.get("X-Twilio-Signature")
-    if signature and not validator.validate(request.url, request.form, signature):
-        logger.warning("Rejected request with invalid Twilio signature: %s", request.url)
-        abort(403)
+    events = request.get_json(silent=True)
+    if isinstance(events, dict):
+        events = [events]
+    if not isinstance(events, list):
+        abort(400)
+    ctx = request.args.get("ctx", "")
+    for event in events:
+        if isinstance(event, dict):
+            executor.submit(handle_event, event.get("type", ""), event.get("data") or {}, ctx)
+    return "", 200
 
 
-def step_url(key: str, path: str) -> str:
-    # Absolute URLs: the trial account's webhook fetcher fails on relative ones.
-    return f"{request.host_url}t/{key}/{path}"
+def handle_event(event_type: str, data: dict, ctx: str) -> None:
+    kind = event_type.removeprefix("Microsoft.Communication.")
+    call_id = data.get("callConnectionId", "")
+    result = data.get("resultInformation") or {}
+    logger.info("ACS %s for %s (%s %s)", kind, call_id[-8:], result.get("code", ""), result.get("message", ""))
+    try:
+        if kind == "CallConnected":
+            on_connected(call_id, ctx)
+        elif kind == "RecognizeCompleted":
+            on_speech(call_id, data)
+        elif kind == "RecognizeFailed":
+            on_silence(call_id)
+        elif kind in ("PlayCompleted", "PlayFailed") and data.get("operationContext") == "goodbye":
+            hang_up(call_id)
+        elif kind == "CallDisconnected":
+            end_call(call_id, reason="Call disconnected")
+        elif kind == "CreateCallFailed":
+            logger.warning("Call could not be placed: %s", result)
+    except Exception:
+        logger.exception("Error handling %s for %s", kind, call_id)
 
 
-def say_and_listen(key: str, text: str) -> Response:
-    response = VoiceResponse()
-    gather = Gather(input="speech", action=step_url(key, "respond"), method="POST",
-                    speech_timeout="2", language="en-US")
-    gather.say(text, voice=VOICE)
-    response.append(gather)
-    response.redirect(step_url(key, "no-input"), method="POST")
-    return twiml(response)
-
-
-def say_and_hang_up(*lines: str) -> Response:
-    response = VoiceResponse()
-    for line in lines:
-        response.say(line, voice=VOICE)
-    response.hangup()
-    return twiml(response)
-
-
-def end_call(call_sid: str, reason: str) -> None:
-    pending.pop(call_sid, None)
-    agent = calls.pop(call_sid, None)
-    if agent:
-        agent.end_call()
-        live_feed.publish(call_sid, "call_ended", reason=reason)
-        logger.info("Transcript for %s:%s", call_sid, agent.get_conversation_transcript())
-
-
-def clara_says(call_sid: str, text: str, **extra) -> str:
-    live_feed.publish(call_sid, "clara", text=text, **extra)
-    return text
-
-
-@app.post("/t/<key>/voice")
-def voice(key):
-    authorize(key)
-    call_sid = request.form["CallSid"]
-    if "ctx" in request.args:
-        name, drivers = decode_call_context(request.args["ctx"])
-    else:  # older links: plain name/drivers parameters
-        name = request.args.get("name", "there")
-        drivers = [d.strip() for d in request.args.get("drivers", "").split(",") if d.strip()]
-
+def on_connected(call_id: str, ctx: str) -> None:
+    name, drivers = decode_call_context(ctx)
     greeting = (
         f"Hi {name}, this is Clara, a virtual assistant from your health insurance care team. "
         "I'm calling to check in on how you're doing with your diabetes management. "
         "How have you been feeling lately?"
     )
-
     agent = HCMVoiceAgent()
     agent.initialize_call({"name": name, "risk_drivers": drivers or DEFAULT_RISK_DRIVERS})
     agent.conversation_history = [
         {"role": "user", "content": "[The call has connected.]"},
         {"role": "assistant", "content": greeting},
     ]
-    calls[call_sid] = agent
-    logger.info("Call %s connected for %s", call_sid, name)
-    live_feed.publish(call_sid, "call_started", name=name,
-                      drivers=agent.patient_context.get("risk_drivers", []))
-    return say_and_listen(key, clara_says(call_sid, greeting, kind="greeting"))
+    calls[call_id] = CallState(agent, find_patient(call_id))
+    logger.info("Call %s connected for %s", call_id, name)
+    live_feed.publish(call_id, "call_started", name=name, drivers=agent.patient_context.get("risk_drivers", []))
+    say_and_listen(call_id, clara_says(call_id, greeting, kind="greeting"))
 
 
-@app.post("/t/<key>/respond")
-def respond(key):
-    authorize(key)
-    call_sid = request.form.get("CallSid", "")
-    agent = calls.get(call_sid)
-    if agent is None:
-        return say_and_hang_up("Sorry, this call session has expired. Goodbye.")
+def on_speech(call_id: str, data: dict) -> None:
+    state = calls.get(call_id)
+    if state is None:
+        return
+    speech = data.get("speechResult") or {}
+    said = (speech.get("speech") or "").strip()
+    with state.lock:
+        if not said:
+            return listen_again(call_id, state)
+        state.silent_turns = 0
+        logger.info("Patient: %s", said)
+        live_feed.publish(call_id, "patient", text=said, confidence=speech.get("confidence"))
 
-    said = request.form.get("SpeechResult", "").strip()
-    logger.info("Patient: %s", said)
-    if not said:
-        return say_and_listen(key, clara_says(
-            call_sid, "Sorry, I didn't catch that. Could you say it again?", kind="system"))
+        # Emergencies get a fixed, immediate response instead of waiting on the model.
+        is_emergency, reason = state.agent.process_patient_input(said)
+        if is_emergency:
+            live_feed.publish(call_id, "emergency", reason=reason)
+            clara_says(call_id, EMERGENCY_LINES, kind="emergency")
+            end_call(call_id, reason="Emergency detected")
+            return say_and_hang_up(call_id, EMERGENCY_LINES)
 
-    confidence = request.form.get("Confidence")
-    live_feed.publish(call_sid, "patient", text=said,
-                      confidence=float(confidence) if confidence else None)
+        live_feed.publish(call_id, "thinking")
+        started = time.monotonic()
+        text = state.agent.generate_response(said)
+        latency = time.monotonic() - started
+        logger.info("Clara (%.1fs): %s", latency, text)
 
-    # Emergencies get a fixed, immediate response instead of waiting on the model.
-    is_emergency, reason = agent.process_patient_input(said)
-    if is_emergency:
-        live_feed.publish(call_sid, "emergency", reason=reason)
-        lines = (
-            "I'm really sorry you're going through this, and I want you to get help right away.",
-            "If this is a medical emergency, please hang up and call 9 1 1 now. "
-            "I'm also flagging this call for your care manager. Goodbye.",
-        )
-        clara_says(call_sid, " ".join(lines), kind="emergency")
-        end_call(call_sid, reason="Emergency detected")
-        return say_and_hang_up(*lines)
+        blocked = getattr(state.agent, "last_blocked_reply", None)
+        if blocked:
+            live_feed.publish(call_id, "guardrail", rule=blocked["rule"], blocked_text=blocked["text"])
+        clara_says(call_id, text, kind="reply", latency=round(latency, 1))
 
-    live_feed.publish(call_sid, "thinking")
-    pending[call_sid] = (executor.submit(agent.generate_response, said), said, time.monotonic())
-    return reply_or_wait(key, call_sid)
-
-
-@app.post("/t/<key>/reply")
-def reply(key):
-    authorize(key)
-    return reply_or_wait(key, request.form.get("CallSid", ""))
+        if GOODBYE.search(said):
+            end_call(call_id, reason="Patient said goodbye")
+            return say_and_hang_up(call_id, text)
+        say_and_listen(call_id, text)
 
 
-def reply_or_wait(key: str, call_sid: str) -> Response:
-    entry = pending.get(call_sid)
-    if entry is None or call_sid not in calls:
-        return say_and_listen(key, "Sorry, could you say that again?")
-
-    future, said, started = entry
-    # Trial accounts allow ~5s per webhook and ~10 webhooks per call, so block for most of
-    # the 5s here and only fall back to a pause-and-recheck when the model is slower.
-    wait([future], timeout=HOLD_SECONDS)
-    logger.info("Reply check for %s: %s after %.1fs", call_sid[-6:],
-                "ready" if future.done() else "not ready", time.monotonic() - started)
-    if not future.done():
-        if time.monotonic() - started > MAX_REPLY_WAIT_SECONDS:
-            pending.pop(call_sid, None)
-            return say_and_listen(key, clara_says(
-                call_sid, "Sorry, I'm having trouble on my end. Could you say that again?", kind="system"))
-        return wait_for_reply(key)
-
-    pending.pop(call_sid, None)
-    text = future.result()
-    latency = time.monotonic() - started
-    logger.info("Clara (%.1fs): %s", latency, text)
-
-    blocked = getattr(calls[call_sid], "last_blocked_reply", None)
-    if blocked:
-        live_feed.publish(call_sid, "guardrail", rule=blocked["rule"], blocked_text=blocked["text"])
-    clara_says(call_sid, text, kind="reply", latency=round(latency, 1))
-
-    if GOODBYE.search(said):
-        end_call(call_sid, reason="Patient said goodbye")
-        return say_and_hang_up(text)
-    return say_and_listen(key, text)
+def on_silence(call_id: str) -> None:
+    state = calls.get(call_id)
+    if state is not None:
+        with state.lock:
+            listen_again(call_id, state)
 
 
-def wait_for_reply(key: str) -> Response:
-    response = VoiceResponse()
-    response.pause(length=1)
-    response.redirect(step_url(key, "reply"), method="POST")
-    return twiml(response)
+def listen_again(call_id: str, state: CallState) -> None:
+    """The patient said nothing (or nothing we caught): re-ask once, then end the call politely."""
+    state.silent_turns += 1
+    if state.silent_turns >= MAX_SILENT_TURNS:
+        clara_says(call_id, NO_INPUT_GOODBYE, kind="system")
+        end_call(call_id, reason="No response from patient")
+        return say_and_hang_up(call_id, NO_INPUT_GOODBYE)
+    say_and_listen(call_id, clara_says(call_id, "Sorry, I didn't catch that. Could you say it again?", kind="system"))
 
 
-@app.post("/t/<key>/no-input")
-def no_input(key):
-    authorize(key)
-    call_sid = request.form.get("CallSid", "")
-    text = "I didn't hear anything, so I'll let you go. Your care team will follow up. Goodbye."
-    if call_sid in calls:
-        clara_says(call_sid, text, kind="system")
-    end_call(call_sid, reason="No response from patient")
-    return say_and_hang_up(text)
+# ---- Talking to ACS ----
 
+def find_patient(call_id: str) -> PhoneNumberIdentifier:
+    """The patient is the phone participant that isn't Clara's own number."""
+    ours = to_e164(settings.acs_phone_number)
+    for participant in acs().get_call_connection(call_id).list_participants():
+        identifier = participant.identifier
+        if isinstance(identifier, PhoneNumberIdentifier) and identifier.properties.get("value") != ours:
+            return identifier
+    raise RuntimeError(f"No patient phone number among the participants of call {call_id}")
+
+
+def speech(text: str) -> TextSource:
+    return TextSource(text=text, voice_name=VOICE)
+
+
+def say_and_listen(call_id: str, text: str) -> None:
+    state = calls.get(call_id)
+    if state is None:
+        return
+    acs().get_call_connection(call_id).start_recognizing_media(
+        input_type=RecognizeInputType.SPEECH,
+        target_participant=state.patient,
+        play_prompt=speech(text),
+        initial_silence_timeout=INITIAL_SILENCE_SECONDS,
+        end_silence_timeout=END_SILENCE_SECONDS,
+        speech_language="en-US",
+        operation_context="turn",
+    )
+
+
+def say_and_hang_up(call_id: str, text: str) -> None:
+    # Hang up once the goodbye has played (PlayCompleted with operationContext "goodbye").
+    acs().get_call_connection(call_id).play_media_to_all(speech(text), operation_context="goodbye")
+
+
+def hang_up(call_id: str) -> None:
+    try:
+        acs().get_call_connection(call_id).hang_up(is_for_everyone=True)
+    except Exception:  # already disconnected
+        logger.info("Call %s was already over", call_id)
+
+
+def end_call(call_id: str, reason: str) -> None:
+    state = calls.pop(call_id, None)
+    if state:
+        state.agent.end_call()
+        live_feed.publish(call_id, "call_ended", reason=reason)
+        logger.info("Transcript for %s:%s", call_id, state.agent.get_conversation_transcript())
+
+
+def clara_says(call_id: str, text: str, **extra) -> str:
+    live_feed.publish(call_id, "clara", text=text, **extra)
+    return text
+
+
+# ---- Status page and live view ----
 
 def protect_live_view() -> None:
     if LIVE_VIEW_PASSWORD:

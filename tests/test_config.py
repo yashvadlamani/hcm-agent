@@ -9,7 +9,8 @@ VALID = config.Settings(
     llm_provider="anthropic", anthropic_model="claude-opus-5",
     azure_openai_endpoint="", azure_openai_api_key="", azure_openai_deployment="",
     azure_openai_reasoning_effort="minimal",
-    twilio_account_sid="ACtest", twilio_auth_token="token", twilio_phone_number="+15555550199",
+    acs_connection_string="endpoint=https://acs.example.net/;accesskey=dGVzdA==", acs_phone_number="+18005550199",
+    acs_cognitive_services_endpoint="https://speech.example.net", acs_voice="en-US-JennyNeural",
     phone_webhook_key="k" * 24, live_view_password="", port=5000,
     clara_base_url="https://clara.example.net", allowed_call_numbers=("+15555550100",), max_calls_per_hour=10,
 )

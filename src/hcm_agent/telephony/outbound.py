@@ -1,4 +1,8 @@
-"""Placing outbound calls through Twilio, shared by clara-call and the call-request Azure Function."""
+"""Placing outbound calls through Azure Communication Services (ACS) Call Automation.
+
+Shared by clara-call and the call-request Azure Function. ACS dials the patient and sends call
+events (connected, speech recognized, disconnected, ...) to the Clara server's callback URL.
+"""
 
 import base64
 import json
@@ -8,7 +12,7 @@ import urllib.request
 from typing import Optional, Sequence
 from urllib.parse import urlencode
 
-from twilio.rest import Client
+from azure.communication.callautomation import CallAutomationClient, PhoneNumberIdentifier
 
 from ..config import Settings
 
@@ -24,8 +28,8 @@ class CallNotAllowed(ValueError):
 def encode_call_context(name: str, risk_drivers: Sequence[str] = ()) -> str:
     """Pack the patient's name and risk drivers into one URL-safe value (letters, digits, '-' and '_').
 
-    Free text such as "HbA1c above 7.5%" breaks calls when passed as ordinary query parameters
-    through Twilio, so it travels as base64url-encoded JSON instead."""
+    Free text such as "HbA1c above 7.5%" is fragile in ordinary query parameters on a callback
+    URL that the phone service calls back, so it travels as base64url-encoded JSON instead."""
     context = {"name": name, "drivers": [d[:MAX_DRIVER_CHARS] for d in risk_drivers][:MAX_RISK_DRIVERS]}
     return base64.urlsafe_b64encode(json.dumps(context, separators=(",", ":")).encode()).decode().rstrip("=")
 
@@ -63,7 +67,7 @@ def check_allowed(settings: Settings, to: str) -> None:
 
 def wake_server(base_url: str, timeout_seconds: int = WAKE_TIMEOUT_SECONDS, on_wait=None) -> None:
     """Wait until the server answers, so a sleeping host (e.g. Azure Free tier) is awake
-    before Twilio's first webhook, which a trial account gives only ~5 seconds."""
+    before the first call event arrives."""
     deadline = time.monotonic() + timeout_seconds
     announced = False
     while True:
@@ -81,19 +85,27 @@ def wake_server(base_url: str, timeout_seconds: int = WAKE_TIMEOUT_SECONDS, on_w
         time.sleep(3)
 
 
+def callback_url(settings: Settings, base_url: str, name: str, risk_drivers: Sequence[str] = ()) -> str:
+    """Where ACS sends this call's events. The secret key authorizes them; ctx carries the patient."""
+    context = encode_call_context(name, risk_drivers)
+    return f"{base_url.rstrip('/')}/acs/{settings.phone_webhook_key}/events?{urlencode({'ctx': context})}"
+
+
 def place_call(settings: Settings, base_url: str, to: str, name: str = "there",
-               risk_drivers: Optional[Sequence[str]] = None, client: Optional[Client] = None,
+               risk_drivers: Optional[Sequence[str]] = None, client: Optional[CallAutomationClient] = None,
                wake: bool = True, on_wait=None) -> str:
-    """Ask Twilio to call `to` and connect them to Clara. Returns the Twilio call SID."""
+    """Ask ACS to call `to` and connect them to Clara. Returns the ACS call connection ID."""
     check_allowed(settings, to)
     base_url = base_url.rstrip("/")
     if wake:
         wake_server(base_url, on_wait=on_wait)
 
-    context = encode_call_context(name, risk_drivers or [])
-    webhook = f"{base_url}/t/{settings.phone_webhook_key}/voice?{urlencode({'ctx': context})}"
-
-    client = client or Client(settings.twilio_account_sid, settings.twilio_auth_token)
-    # Trial accounts reject any call parameters beyond to/from/url.
-    call = client.calls.create(to=to_e164(to), from_=to_e164(settings.twilio_phone_number), url=webhook)
-    return call.sid
+    client = client or CallAutomationClient.from_connection_string(settings.acs_connection_string)
+    call = client.create_call(
+        target_participant=PhoneNumberIdentifier(to_e164(to)),
+        callback_url=callback_url(settings, base_url, name, risk_drivers or []),
+        source_caller_id_number=PhoneNumberIdentifier(to_e164(settings.acs_phone_number)),
+        # The Azure AI Services resource ACS uses for text-to-speech and speech recognition.
+        cognitive_services_endpoint=settings.acs_cognitive_services_endpoint,
+    )
+    return call.call_connection_id

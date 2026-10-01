@@ -42,7 +42,7 @@ def placed(monkeypatch):
 
     def fake_place_call(settings, base_url, to, name, drivers):
         calls.append({"base_url": base_url, "to": to, "name": name, "drivers": drivers})
-        return "CAfake123"
+        return "call-fake-123"
 
     monkeypatch.setattr(function_app, "place_call", fake_place_call)
     return calls
@@ -54,7 +54,7 @@ def request(**fields) -> bytes:
 
 def test_valid_request_places_one_call(placed):
     outcome, result = function_app._handle(request(), FakeContainer())
-    assert (outcome, result) == ("processed", {"call_sid": "CAfake123"})
+    assert (outcome, result) == ("processed", {"call_connection_id": "call-fake-123"})
     assert placed == [{"base_url": VALID.clara_base_url, "to": "+15555550100", "name": "Yash", "drivers": []}]
 
 
@@ -80,11 +80,11 @@ def test_unconfigured_function_refuses(placed, monkeypatch):
 
 def test_result_is_filed_and_incoming_deleted():
     container, incoming = FakeContainer(), FakeIncoming()
-    function_app._file_result(container, incoming, "lease-1", request(), "processed", {"call_sid": "CA1"})
+    function_app._file_result(container, incoming, "lease-1", request(), "processed", {"call_connection_id": "call-1"})
 
     [(name, record)] = container.uploaded.items()
     assert name.startswith("processed/") and name.endswith("-yash-test.json")
-    assert record["result"] == {"call_sid": "CA1"} and record["request"]["to"] == "+15555550100"
+    assert record["result"] == {"call_connection_id": "call-1"} and record["request"]["to"] == "+15555550100"
     assert incoming.deleted_with == "lease-1"
 
 

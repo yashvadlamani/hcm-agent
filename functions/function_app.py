@@ -6,7 +6,7 @@ Upload to the `call-requests` container under `incoming/`, for example
     {"to": "+15551234567", "name": "Yash", "risk_drivers": ["HbA1c above 7.5%"]}
 
 Each file places at most one call. The file is then moved to `processed/` (with the
-Twilio call SID) or `failed/` (with the reason). Only numbers in ALLOWED_CALL_NUMBERS
+call connection ID) or `failed/` (with the reason). Only numbers in ALLOWED_CALL_NUMBERS
 are called, and at most MAX_CALLS_PER_HOUR calls are placed per hour.
 
 `incoming/README.txt` keeps the folder visible between uploads (blob storage has no real
@@ -100,11 +100,11 @@ def _handle(raw: bytes, container: ContainerClient) -> tuple[str, dict]:
         return "failed", {"error": str(e)}
     except TimeoutError as e:
         return "failed", {"error": f"Clara server didn't wake up: {e}"}
-    except Exception as e:  # Twilio errors: record the message, don't retry
-        return "failed", {"error": f"Twilio refused the call: {e}"}
+    except Exception as e:  # ACS errors: record the message, don't retry
+        return "failed", {"error": f"Azure Communication Services refused the call: {e}"}
 
     logger.info("Placed call %s to number ending %s", sid, request.to[-4:])
-    return "processed", {"call_sid": sid}
+    return "processed", {"call_connection_id": sid}
 
 
 def _calls_in_last_hour(container: ContainerClient) -> int:

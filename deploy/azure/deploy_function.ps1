@@ -6,7 +6,7 @@ Creates (or updates) in the resource group:
   - a storage account with the private `call-requests` container
   - a Flex Consumption Function App (Python 3.12) running functions/function_app.py
   - an Event Grid subscription that triggers the function for each new incoming/*.json
-Secrets (Twilio, webhook key, storage connection) go to the Key Vault shared with the Clara
+Secrets (ACS connection string, webhook key, storage connection) go to the Key Vault shared with the Clara
 server; the Function app reads them through Key Vault references.
 
 Safe to re-run: use it again to push code or .env setting changes. GitHub Actions
@@ -32,7 +32,7 @@ $functionName = "call_request"
 . "$PSScriptRoot\common.ps1"
 
 $settings = Read-DotEnv (Join-Path $root ".env")
-$required = "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "PHONE_WEBHOOK_KEY", "ALLOWED_CALL_NUMBERS"
+$required = "ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER", "ACS_COGNITIVE_SERVICES_ENDPOINT", "PHONE_WEBHOOK_KEY", "ALLOWED_CALL_NUMBERS"
 $missing = @($required | Where-Object { -not $settings[$_] })
 if ($missing.Count -gt 0) { throw "Set these in .env before deploying: $($missing -join ', ')" }
 
@@ -72,6 +72,7 @@ foreach ($name in $required + "MAX_CALLS_PER_HOUR") {
 }
 $appSettings += Sync-VaultSecrets $Vault $secrets
 Write-AppSettings functionapp $ResourceGroup $FunctionApp $appSettings
+Remove-RetiredSettings functionapp $ResourceGroup $FunctionApp
 
 Write-Host "4/7 Uploading code (Azure installs the requirements; this takes a few minutes)"
 $zip = Join-Path $env:TEMP "clara-function.zip"
