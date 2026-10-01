@@ -118,6 +118,17 @@ def test_mental_health_crisis_gets_the_988_message():
     assert "9 8 8" in turn.reply and turn.action == "hang_up"
 
 
+def test_keyword_emergency_drops_the_sentiment():
+    """Found on a real call: "I'm having chest pain" left the dashboard showing 0.50 Neutral."""
+    agent, _ = new_agent()
+    assert agent.take_turn("I'm having chest pain").sentiment == 0.26  # 0.4*0.5 + 0.6*0.1
+
+
+def test_emergency_keeps_a_score_the_model_already_set_low():
+    agent, _ = new_agent(turn_json("Okay.", sentiment=0.05, emergency=("medical", "fainting")))
+    assert agent.take_turn("I keep almost passing out").sentiment == 0.23  # model's reading only
+
+
 def test_mental_health_keyword_is_caught_instantly():
     agent, llm = new_agent()
     turn = agent.take_turn("I've been thinking about ending my life, I just want to die")
@@ -321,6 +332,19 @@ def test_someone_else_is_asked_for_a_good_time_then_the_time_is_noted():
     summary = agent.end_call()
     assert summary["callback_time"] == "Try tomorrow after 5 pm." and summary["spoke_with"] == "John"
     assert llm.requests == []
+
+
+@pytest.mark.parametrize("heard", ["Yes, this is Yesh.", "Yes, this is Josh.", "This is Yash", "It's Yosh"])
+def test_misheard_names_still_confirm_the_patient(heard):
+    """Found on a real call: speech recognition heard "Yes, this is Yesh" for "Yes, this is Yash"."""
+    agent, _ = new_agent(name="Yash", verified=False)
+    turn = agent.take_turn(heard)
+    assert turn.identity == "confirmed" and turn.phase == "conversation"
+
+
+def test_a_clearly_different_name_is_someone_else():
+    agent, _ = new_agent(name="Yash", verified=False)
+    assert agent.take_turn("This is Michael.").identity == "not_available"
 
 
 def test_a_time_given_up_front_is_noted_without_asking_again():
