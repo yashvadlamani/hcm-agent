@@ -48,6 +48,9 @@ Write-Host "1/7 Storage account '$StorageAccount' and container '$container'"
 Invoke-Az storage account create -g $ResourceGroup -n $StorageAccount -l $Location --sku Standard_LRS --kind StorageV2 `
     --min-tls-version TLS1_2 --allow-blob-public-access false -o none | Out-Null
 Invoke-Az storage container create --account-name $StorageAccount --auth-mode key -n $container -o none | Out-Null
+# A placeholder keeps incoming/ visible between uploads (blob storage has no real folders).
+Invoke-Az storage blob upload --account-name $StorageAccount --auth-mode key -c $container -n incoming/README.txt `
+    -f (Join-Path $root "functions\incoming_README.txt") --overwrite true -o none | Out-Null
 $connection = (Invoke-Az storage account show-connection-string -g $ResourceGroup -n $StorageAccount --query connectionString -o tsv).Trim()
 
 Write-Host "2/7 Function app '$FunctionApp' (Flex Consumption, Python 3.12)"
