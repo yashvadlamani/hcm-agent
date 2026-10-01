@@ -105,15 +105,7 @@ Invoke-Az eventgrid system-topic event-subscription create -g $ResourceGroup --s
     -o none | Out-Null
 
 Write-Host "7/7 Deployment access for GitHub Actions"
-Invoke-Az resource update -g $ResourceGroup --namespace Microsoft.Web --resource-type basicPublishingCredentialsPolicies `
-    --parent "sites/$FunctionApp" -n scm --set properties.allow=true -o none | Out-Null
-if ($PublishProfilePath) {
-    # `az functionapp deployment list-publishing-profiles` doesn't support Flex; the ARM API does.
-    $siteId = (Invoke-Az functionapp show -g $ResourceGroup -n $FunctionApp --query id -o tsv).Trim()
-    Invoke-Az rest --method post --url "https://management.azure.com$siteId/publishxml?api-version=2024-04-01" `
-        --output-file $PublishProfilePath | Out-Null
-    Write-Host "  Publish profile written to $PublishProfilePath (a secret: add it to GitHub, then delete the file)."
-}
+Export-PublishProfile $ResourceGroup $FunctionApp $PublishProfilePath
 
 Write-Host ""
 Write-Host "Done. To place a test call, upload a JSON file to incoming/, for example:"

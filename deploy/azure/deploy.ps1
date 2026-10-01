@@ -3,6 +3,8 @@ Deploys the Clara phone server to Azure App Service (Linux, Python 3.12).
 Secrets from .env (API keys, Twilio token, webhook key, live-view password) are stored in an
 Azure Key Vault; the app reads them through Key Vault references. Safe to re-run: use it again
 to push code or .env setting changes (including new key values).
+Code changes on main also deploy automatically through GitHub Actions
+(.github/workflows/deploy-server.yml); -PublishProfilePath writes the profile it needs.
 
 Usage:  .\deploy\azure\deploy.ps1 -AppName clara-<something-unique>
 #>
@@ -12,7 +14,8 @@ param(
     [string]$Location = "eastus",
     # F1 (Free) works on a new trial subscription; B1 needs Basic quota but supports Always On.
     [string]$Sku = "F1",
-    [string]$Vault = ""
+    [string]$Vault = "",
+    [string]$PublishProfilePath = ""
 )
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path "$PSScriptRoot\..\..").Path
@@ -80,6 +83,9 @@ try {
 } finally {
     Remove-Item $zip -ErrorAction SilentlyContinue
 }
+
+Write-Host "Deployment access for GitHub Actions"
+Export-PublishProfile $ResourceGroup $AppName $PublishProfilePath
 
 $url = "https://$AppName.azurewebsites.net"
 Write-Host ""
