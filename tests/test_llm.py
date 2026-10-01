@@ -46,6 +46,7 @@ def azure_env(monkeypatch):
 def new_agent():
     agent = HCMVoiceAgent()
     agent.initialize_call({"name": "Yash", "risk_drivers": ["HbA1c above 7.5%"]})
+    agent.phase = "conversation"  # past the identity check; these tests are about the model request
     return agent
 
 
@@ -58,6 +59,7 @@ def test_azure_openai_request_shape(azure_env):
     request = agent.llm.client.requests[0]
     assert request["model"] == "clara-chat"
     assert request["reasoning_effort"] == "minimal"
+    assert request["response_format"] == {"type": "json_object"}  # the structured turn: reply, emergency, sentiment
     assert request["messages"][0]["role"] == "system"
     assert request["messages"][-1] == {"role": "user", "content": "I've been stressed about my refills."}
 

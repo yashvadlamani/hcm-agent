@@ -4,39 +4,15 @@ from types import SimpleNamespace
 import pytest
 from azure.communication.callautomation import PhoneNumberIdentifier
 
+from hcm_agent.agent.conversation import FEEDBACK_QUESTION, HCMVoiceAgent
 from hcm_agent.telephony import live_feed, server
 from test_config import VALID
+from test_conversation import ScriptedLLM, turn_json
 
 KEY = "test-webhook-key-0123456789"
 CALL = "call-1"
 PATIENT = "+15555550100"
-
-
-class FakeAgent:
-    """Stands in for HCMVoiceAgent so tests never call a model."""
-
-    reply = "Thanks for sharing that. How can I help?"
-
-    def __init__(self):
-        self.conversation_history = []
-        self.generate_calls = 0
-
-    def initialize_call(self, patient_context):
-        self.patient_context = patient_context
-
-    def process_patient_input(self, said):
-        is_emergency = "chest pain" in said.lower()
-        return is_emergency, "chest pain" if is_emergency else ""
-
-    def generate_response(self, said):
-        self.generate_calls += 1
-        return FakeAgent.reply
-
-    def end_call(self):
-        return {}
-
-    def get_conversation_transcript(self):
-        return ""
+REPLY = "Thanks for sharing that. What's been hardest lately?"
 
 
 class FakeACS:
@@ -74,9 +50,17 @@ class RunNow:
 
 
 @pytest.fixture
-def acs(monkeypatch):
+def model():
+    """The scripted model behind every call's real HCMVoiceAgent. Tests queue its responses."""
+    return ScriptedLLM(turn_json(REPLY))
+
+
+@pytest.fixture
+def acs(monkeypatch, model):
     fake = FakeACS()
-    monkeypatch.setattr(server, "HCMVoiceAgent", FakeAgent)
+    monkeypatch.setattr(server, "HCMVoiceAgent", lambda **_: HCMVoiceAgent(settings=VALID, llm=model))
+    monkeypatch.setattr(server, "shared_llm", lambda: model)
+    monkeypatch.setattr(server, "warm_up_model", lambda: None)
     monkeypatch.setattr(server, "WEBHOOK_KEY", KEY)
     monkeypatch.setattr(server, "LIVE_VIEW_PASSWORD", "")
     monkeypatch.setattr(server, "settings", dataclasses.replace(VALID, phone_webhook_key=KEY))
@@ -98,14 +82,22 @@ def send(client, event_type, key=KEY, ctx="", **data):
     return client.post(f"/acs/{key}/events{query}", json=body).status_code
 
 
-def connect(client, name="Yash", drivers=()):
+def connect(client, name="Yash", drivers=(), confirm=True):
+    """Start a call. confirm=True answers Clara's opening as the patient ("Yes, this is Yash.")."""
     from hcm_agent.telephony.outbound import encode_call_context
-    return send(client, "CallConnected", ctx=encode_call_context(name, list(drivers)))
+    status = send(client, "CallConnected", ctx=encode_call_context(name, list(drivers)))
+    if confirm:
+        speak(client, f"Yes, this is {name}.")
+    return status
 
 
 def speak(client, text, confidence=None):
     return send(client, "RecognizeCompleted", recognitionType="speech",
                 speechResult={"speech": text, "confidence": confidence})
+
+
+def event_types():
+    return [e["type"] for e in live_feed.history()]
 
 
 def test_rejects_wrong_key(client, acs):
@@ -117,37 +109,86 @@ def test_rejects_non_json(client):
     assert client.post(f"/acs/{KEY}/events", data="hello").status_code == 400
 
 
-def test_greeting_is_spoken_to_the_patient_and_clara_listens(client, acs):
-    assert connect(client) == 200
+def test_opening_asks_for_the_patient_and_clara_listens(client, acs):
+    assert connect(client, confirm=False) == 200
     action, text, target = acs.last()
     assert action == "listen" and target == PATIENT
-    assert text.startswith("Hi Yash, this is Clara")
+    assert text == ("Hi, I'm Clara, a virtual assistant from your health insurance care team. "
+                    "May I speak with Yash, please?")
+
+
+def test_confirmed_patient_hears_the_reason_for_the_call(client, acs, model):
+    connect(client)
+    action, text, _ = acs.last()
+    assert action == "listen" and text.startswith("Thanks, Yash. I'm calling to check in")
+    assert model.requests == []
+    identity = next(e for e in live_feed.history() if e["type"] == "identity")
+    assert identity["status"] == "confirmed"
+
+
+def test_someone_else_answering_leads_to_a_noted_callback_time(client, acs):
+    connect(client, confirm=False)
+    speak(client, "No, this is John.")
+    assert acs.last() == ("listen", "No problem. What would be a good time to reach Yash?", PATIENT)
+    speak(client, "Tomorrow after 5.")
+    action, text, context = acs.last()
+    assert action == "say" and "noted" in text and context == "goodbye"
+    callback = next(e for e in live_feed.history() if e["type"] == "callback")
+    assert callback["time"] == "Tomorrow after 5." and callback["spoke_with"] == "John"
+    assert event_types()[-1] == "call_ended"
 
 
 def test_reply_is_spoken_and_clara_listens_again(client, acs):
     connect(client)
     speak(client, "I'm feeling stressed.")
-    assert acs.last() == ("listen", FakeAgent.reply, PATIENT)
+    assert acs.last() == ("listen", REPLY, PATIENT)
 
 
-def test_emergency_skips_model_and_hangs_up_after_the_message(client, acs):
+def test_keyword_emergency_skips_model_and_hangs_up_after_the_message(client, acs, model):
     connect(client)
-    agent = server.calls[CALL].agent
     speak(client, "I'm having chest pain")
     action, text, context = acs.last()
     assert action == "say" and "9 1 1" in text and context == "goodbye"
-    assert agent.generate_calls == 0
+    assert model.requests == []
     assert CALL not in server.calls
 
     send(client, "PlayCompleted", operationContext="goodbye")
     assert acs.last() == ("hang_up",)
 
 
-def test_goodbye_ends_the_call(client, acs):
+def test_ai_emergency_without_keywords_ends_the_call(client, acs, model):
+    low_sugar = ("medical", "confusion and sweating suggest severe low blood sugar")
+    model.responses = [turn_json("Okay.", emergency=low_sugar)]
+    connect(client)
+    speak(client, "I feel really shaky and confused and I'm sweating a lot")
+    action, text, context = acs.last()
+    assert action == "say" and "9 1 1" in text and context == "goodbye"
+    emergency = next(e for e in live_feed.history() if e["type"] == "emergency")
+    assert emergency["source"] == "ai" and emergency["kind"] == "medical"
+    assert "low blood sugar" in emergency["reason"]
+
+
+def test_goodbye_offers_the_feedback_form_then_ends(client, acs):
     connect(client)
     speak(client, "That's all, goodbye.")
-    assert acs.last() == ("say", FakeAgent.reply, "goodbye")
+    assert acs.last() == ("listen", FEEDBACK_QUESTION, PATIENT)
+    assert CALL in server.calls
+
+    speak(client, "Yes please.")
+    action, text, context = acs.last()
+    assert action == "say" and "noted that you'd like the feedback form" in text and context == "goodbye"
     assert CALL not in server.calls
+    feedback = next(e for e in live_feed.history() if e["type"] == "feedback")
+    assert feedback["requested"] is True
+
+
+def test_patient_done_moves_to_the_closing(client, acs, model):
+    model.responses = [turn_json("I'm glad I could help.", state="patient_done")]
+    connect(client)
+    speak(client, "No, that's everything I needed.")
+    assert acs.last() == ("listen", f"I'm glad I could help. {FEEDBACK_QUESTION}", PATIENT)
+    closing = next(e for e in live_feed.history() if e["type"] == "closing")
+    assert closing["reason"] == "Patient's needs addressed"
 
 
 def test_silence_reprompts_once_then_says_goodbye(client, acs):
@@ -188,36 +229,48 @@ def test_greeting_reads_encoded_call_context(client):
     assert started["name"] == "Yash" and started["drivers"] == drivers
 
 
-def test_live_feed_records_a_conversation(client):
+def test_live_feed_records_a_conversation(client, model):
+    model.responses = [turn_json(REPLY, sentiment=0.2)]
     connect(client)
     speak(client, "I'm feeling stressed.", confidence=0.42)
     speak(client, "That's all, goodbye.")
+    speak(client, "No thanks.")
     assert event_types() == [
         "call_started", "clara",
-        "patient", "thinking", "clara",
-        "patient", "thinking", "clara", "call_ended",
+        "patient", "thinking", "identity", "clara",
+        "patient", "thinking", "sentiment", "clara",
+        "patient", "thinking", "closing", "clara",
+        "patient", "thinking", "clara", "feedback", "call_ended",
     ]
-    patient = next(e for e in live_feed.history() if e["type"] == "patient")
+    patient = next(e for e in live_feed.history() if e["type"] == "patient" and e["text"] == "I'm feeling stressed.")
     assert patient["confidence"] == 0.42
+
+
+def test_live_feed_tracks_sentiment_from_neutral(client, model):
+    model.responses = [turn_json(sentiment=0.2), turn_json(sentiment=0.9)]
+    connect(client)
+    assert next(e for e in live_feed.history() if e["type"] == "call_started")["sentiment"] == 0.5
+    speak(client, "I'm really stressed.")
+    speak(client, "That helps a lot, thanks.")
+    readings = [(e["value"], e["change"]) for e in live_feed.history() if e["type"] == "sentiment"]
+    assert readings == [(0.32, -0.18), (0.67, 0.35)]
 
 
 def test_live_feed_records_emergency(client):
     connect(client)
     speak(client, "I'm having chest pain")
     assert event_types()[-3:] == ["emergency", "clara", "call_ended"]
+    emergency = next(e for e in live_feed.history() if e["type"] == "emergency")
+    assert emergency["source"] == "keyword"
 
 
-def test_live_feed_shows_blocked_reply(client):
+def test_live_feed_shows_blocked_reply(client, model):
+    model.responses = [turn_json("You have neuropathy.")]
     connect(client)
-    server.calls[CALL].agent.last_blocked_reply = {"rule": "medical_diagnosis", "text": "You have neuropathy."}
     speak(client, "What's wrong with my feet?")
     guardrail = next(e for e in live_feed.history() if e["type"] == "guardrail")
     assert guardrail["rule"] == "medical_diagnosis"
     assert guardrail["blocked_text"] == "You have neuropathy."
-
-
-def event_types():
-    return [e["type"] for e in live_feed.history()]
 
 
 def test_live_view_is_local_only(client):

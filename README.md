@@ -26,8 +26,11 @@ More detail: [Architecture](./docs/architecture.md).
 |---|---|
 | Live two-way phone conversations (Azure Communication Services, Azure AI Speech) | ✅ Live |
 | Replies personalized to the patient's name and risk drivers (Azure OpenAI or Claude) | ✅ Live |
-| Safety guardrails: no diagnoses, no medical advice, no medication changes | ✅ Live |
-| Emergency detection with an immediate 911 message | ✅ Live |
+| Safety guardrails: no diagnoses, no medical advice, no medication changes, no promises | ✅ Live |
+| Emergency detection from context (clinical knowledge) plus keywords; 911 or the 988 crisis line | ✅ Live |
+| Identity check before anything health-related; callback time noted if someone else answers | ✅ Live |
+| Natural call endings ("anything else?") with a feedback-form opt-in | ✅ Live |
+| Live patient sentiment score (0–1) on the dashboard | ✅ Live |
 | Start calls by uploading a JSON file (Azure Functions + Event Grid) | ✅ Live |
 | Live call dashboard with guardrail and emergency alerts | ✅ Live |
 | Secrets in Azure Key Vault; automated tests and deploys (GitHub Actions) | ✅ Live |

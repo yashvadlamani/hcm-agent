@@ -13,7 +13,6 @@ purchased number and Microsoft's BAA in place for HIPAA workloads.
 
 import hmac
 import logging
-import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +30,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from .. import config
 from ..agent import HCMVoiceAgent
+from ..agent.llm import LLM, create_llm
 from . import live_feed
 from .outbound import decode_call_context, to_e164
 
@@ -54,12 +54,6 @@ INITIAL_SILENCE_SECONDS = 8   # how long to wait for the patient to start speaki
 END_SILENCE_SECONDS = 2       # pause that marks the end of what they said
 MAX_SILENT_TURNS = 2          # re-ask once, then say goodbye
 DEFAULT_RISK_DRIVERS = ["HbA1c above 7.5%", "Missed medication refills"]
-GOODBYE = re.compile(r"\b(bye|goodbye|hang up|that's all|that is all)\b", re.IGNORECASE)
-EMERGENCY_LINES = (
-    "I'm really sorry you're going through this, and I want you to get help right away. "
-    "If this is a medical emergency, please hang up and call 9 1 1 now. "
-    "I'm also flagging this call for your care manager. Goodbye."
-)
 NO_INPUT_GOODBYE = "I didn't hear anything, so I'll let you go. Your care team will follow up. Goodbye."
 
 
@@ -74,6 +68,7 @@ class CallState:
 calls: dict[str, CallState] = {}
 executor = ThreadPoolExecutor(max_workers=8)
 _client: CallAutomationClient | None = None
+_llm: LLM | None = None
 
 
 def acs() -> CallAutomationClient:
@@ -81,6 +76,25 @@ def acs() -> CallAutomationClient:
     if _client is None:
         _client = CallAutomationClient.from_connection_string(settings.acs_connection_string)
     return _client
+
+
+def shared_llm() -> LLM:
+    """One model client for every call, so calls reuse its open connection."""
+    global _llm
+    if _llm is None:
+        _llm = create_llm(settings)
+    return _llm
+
+
+def warm_up_model() -> None:
+    """A tiny request while the greeting plays, so a cold model never delays the patient's first turn."""
+    started = time.monotonic()
+    try:
+        shared_llm().complete('Reply with the JSON object {"ok": true}.', [{"role": "user", "content": "ping"}],
+                              json_mode=True)
+        logger.info("Model warm-up took %.1fs", time.monotonic() - started)
+    except Exception as e:
+        logger.warning("Model warm-up failed: %s", e)
 
 
 # ---- Call events from ACS ----
@@ -126,20 +140,14 @@ def handle_event(event_type: str, data: dict, ctx: str) -> None:
 
 def on_connected(call_id: str, ctx: str) -> None:
     name, drivers = decode_call_context(ctx)
-    greeting = (
-        f"Hi {name}, this is Clara, a virtual assistant from your health insurance care team. "
-        "I'm calling to check in on how you're doing with your diabetes management. "
-        "How have you been feeling lately?"
-    )
-    agent = HCMVoiceAgent()
+    executor.submit(warm_up_model)
+    agent = HCMVoiceAgent(llm=shared_llm())
     agent.initialize_call({"name": name, "risk_drivers": drivers or DEFAULT_RISK_DRIVERS})
-    agent.conversation_history = [
-        {"role": "user", "content": "[The call has connected.]"},
-        {"role": "assistant", "content": greeting},
-    ]
+    greeting = agent.start_call()  # asks for the patient by name before anything health-related
     calls[call_id] = CallState(agent, find_patient(call_id))
     logger.info("Call %s connected for %s", call_id, name)
-    live_feed.publish(call_id, "call_started", name=name, drivers=agent.patient_context.get("risk_drivers", []))
+    live_feed.publish(call_id, "call_started", name=name, drivers=agent.patient_context.get("risk_drivers", []),
+                      sentiment=agent.sentiment)
     say_and_listen(call_id, clara_says(call_id, greeting, kind="greeting"))
 
 
@@ -156,29 +164,46 @@ def on_speech(call_id: str, data: dict) -> None:
         logger.info("Patient: %s", said)
         live_feed.publish(call_id, "patient", text=said, confidence=speech.get("confidence"))
 
-        # Emergencies get a fixed, immediate response instead of waiting on the model.
-        is_emergency, reason = state.agent.process_patient_input(said)
-        if is_emergency:
-            live_feed.publish(call_id, "emergency", reason=reason)
-            clara_says(call_id, EMERGENCY_LINES, kind="emergency")
-            end_call(call_id, reason="Emergency detected")
-            return say_and_hang_up(call_id, EMERGENCY_LINES)
-
+        agent = state.agent
+        sentiment_before, phase_before = agent.sentiment, agent.phase
         live_feed.publish(call_id, "thinking")
         started = time.monotonic()
-        text = state.agent.generate_response(said)
+        turn = agent.take_turn(said)
         latency = time.monotonic() - started
-        logger.info("Clara (%.1fs): %s", latency, text)
+        logger.info("Clara (%.1fs, %s): %s", latency, turn.action, turn.reply)
 
-        blocked = getattr(state.agent, "last_blocked_reply", None)
-        if blocked:
-            live_feed.publish(call_id, "guardrail", rule=blocked["rule"], blocked_text=blocked["text"])
-        clara_says(call_id, text, kind="reply", latency=round(latency, 1))
+        if turn.used_model or turn.sentiment != sentiment_before:
+            live_feed.publish(call_id, "sentiment", value=turn.sentiment,
+                              change=round(turn.sentiment - sentiment_before, 2))
+        if turn.emergency:
+            live_feed.publish(call_id, "emergency", kind=turn.emergency.kind, source=turn.emergency.source,
+                              reason=turn.emergency.reason)
+        if turn.blocked:
+            live_feed.publish(call_id, "guardrail", rule=turn.blocked["rule"], blocked_text=turn.blocked["text"])
+        if turn.identity:
+            live_feed.publish(call_id, "identity", status=turn.identity, spoke_with=turn.spoke_with)
+        if turn.callback_time:
+            live_feed.publish(call_id, "callback", time=turn.callback_time, spoke_with=turn.spoke_with)
+        if phase_before == "conversation" and turn.phase == "feedback":
+            live_feed.publish(call_id, "closing", reason=agent.closing_reason)
 
-        if GOODBYE.search(said):
-            end_call(call_id, reason="Patient said goodbye")
-            return say_and_hang_up(call_id, text)
-        say_and_listen(call_id, text)
+        if turn.emergency:
+            kind = "emergency"
+        elif turn.action == "hang_up":
+            kind = "goodbye"
+        elif turn.phase in ("verify", "callback") or turn.identity == "confirmed":
+            kind = "opening"
+        else:
+            kind = "closing" if turn.phase == "feedback" else "reply"
+        timing = {"latency": round(latency, 1)} if turn.used_model else {}
+        clara_says(call_id, turn.reply, kind=kind, **timing)
+        if turn.feedback_opt_in is not None:
+            live_feed.publish(call_id, "feedback", requested=turn.feedback_opt_in)
+
+        if turn.action == "hang_up":
+            end_call(call_id, reason=turn.end_reason or "Call complete")
+            return say_and_hang_up(call_id, turn.reply)
+        say_and_listen(call_id, turn.reply)
 
 
 def on_silence(call_id: str) -> None:
