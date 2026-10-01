@@ -2,7 +2,7 @@
 Turns the Clara app back on. With -Sku B1 (needs Basic quota) it also moves the plan to B1
 and turns Always On back on; the default F1 (Free) tier just starts the app.
 
-Usage:  .\deploy\azure\start.ps1 -AppName clara-<your-app> [-Sku B1]
+Usage:  .\hcm_agent\deploy\start.ps1 -AppName clara-<your-app> [-Sku B1]
 #>
 param(
     [Parameter(Mandatory = $true)][string]$AppName,

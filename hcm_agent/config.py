@@ -1,7 +1,7 @@
 """Runtime settings, read from environment variables (and a local .env file).
 
 Every setting the app uses is defined here, so there is one place to see what
-needs configuring. See .env.example for descriptions.
+needs configuring. See config/.env.example for descriptions.
 """
 
 import os
