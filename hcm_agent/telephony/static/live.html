@@ -117,6 +117,7 @@
           <div class="score"><span id="sent-score">0.50</span><span class="mood-pill neutral" id="sent-label">Neutral</span></div>
           <div class="meter"><div class="mark" id="sent-mark" style="left: calc(50% - 1px)"></div></div>
           <div class="scale"><span>0 negative</span><span>0.5</span><span>1 positive</span></div>
+          <div class="label" id="sent-hint" hidden>Updates after Clara's first reply</div>
         </div>
         <svg class="trend" id="sent-trend" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Sentiment trend"></svg>
       </div>
@@ -305,6 +306,7 @@ function renderSentiment(call) {
   label.className = `mood-pill ${tone}`;
   label.textContent = MOOD_LABEL[tone];
   $("sent-mark").style.left = `calc(${(value * 100).toFixed(0)}% - 1px)`;
+  $("sent-hint").hidden = call.trend.length > 1;  // still the 0.50 starting point: no reading yet
 
   // Trend: one point per reading, 0 at the bottom and 1 at the top, with the 0.5 line dashed.
   const svg = $("sent-trend"), ns = "http://www.w3.org/2000/svg";

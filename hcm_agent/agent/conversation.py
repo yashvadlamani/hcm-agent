@@ -16,6 +16,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from typing import Optional, Tuple
 
 from .. import config
@@ -76,6 +77,8 @@ NOT_AVAILABLE = re.compile(r"^\W*(no|nope|nah)\b|\b(not here|isn't here|is not h
                            r"call back later|not in)\b", re.IGNORECASE)
 CONFIRMED = re.compile(r"\b(yes|yeah|yep|yup|speaking|that's me|that is me|it's me|this is (she|he|her|him|me)|"
                        r"you got (her|him|me)|uh huh|mhm|that's right|correct|i am|sure)\b", re.IGNORECASE)
+AFFIRMATIVE_START = re.compile(r"^\W*(yes|yeah|yep|yup|speaking|that's me|it's me|this is (she|he|me))\b",
+                               re.IGNORECASE)
 THIS_IS = re.compile(r"\b(?:this is|it's|i'm|i am|my name is)\s+([A-Za-z][A-Za-z'-]+)", re.IGNORECASE)
 NOT_NAMES = {"she", "he", "her", "him", "me", "his", "the", "a", "not", "just", "fine", "good", "busy", "sorry"}
 TIME_WORDS = re.compile(r"\b(tomorrow|tonight|today|morning|afternoon|evening|noon|weekend|monday|tuesday|"
@@ -93,6 +96,8 @@ MORE_TO_SAY = re.compile(r"\b(but|actually|one more|also|another|wait|question|w
 POSITIVE = re.compile(r"\b(thank you|thanks so much|thanks a lot|helpful|appreciate|that helps|great|perfect|"
                       r"wonderful|glad)\b", re.IGNORECASE)
 POSITIVE_READING = 0.8
+EMERGENCY_READING = 0.1   # an emergency pulls the score down to below 0.3...
+EMERGENCY_CEILING = 0.3   # ...unless the model has already scored it that low
 YES = re.compile(r"\b(yes|yeah|yep|yup|sure|ok|okay|please|absolutely|definitely|why not|sounds good)\b",
                  re.IGNORECASE)
 NO = re.compile(r"\b(no(?! problem| worries)|nope|nah|not really|don't want|do not want|don't need|"
@@ -271,6 +276,10 @@ class HCMVoiceAgent:
         return reply
 
     def _emergency_turn(self, said: str, emergency: Emergency) -> Turn:
+        # An emergency means distress. Keyword and content-filter emergencies skip the model's reading,
+        # so the score would otherwise sit at neutral.
+        if self.sentiment > EMERGENCY_CEILING:
+            self._update_sentiment(EMERGENCY_READING)
         self.is_emergency = True
         self.emergency = emergency
         self.escalation_reason = f"{emergency.kind} emergency ({emergency.source}): {emergency.reason}"
@@ -315,7 +324,10 @@ class HCMVoiceAgent:
             self._remember(said, reply)
             return self._end_opening("wrong_number", "Wrong number", reply)
 
-        is_someone_else = stated is not None and stated.lower() != first
+        # Speech recognition often misspells names ("Yesh" for "Yash"), so close spellings count as a match,
+        # and an answer that opens with a clear yes confirms whatever name follows.
+        is_someone_else = (stated is not None and not same_name(stated, first)
+                           and not (AFFIRMATIVE_START.search(said) and not NOT_AVAILABLE.search(said)))
         if NOT_AVAILABLE.search(said) or is_someone_else:
             self.spoke_with = stated.capitalize() if is_someone_else else None
             if TIME_WORDS.search(said) and not re.fullmatch(r"\W*(no|nope|nah)\W*", said, re.IGNORECASE):
@@ -327,7 +339,7 @@ class HCMVoiceAgent:
             return Turn(reply=reply, action="listen", sentiment=self.sentiment, identity="not_available",
                         spoke_with=self.spoke_with, phase=self.phase)
 
-        if CONFIRMED.search(said) or (stated is not None and stated.lower() == first):
+        if CONFIRMED.search(said) or (stated is not None and same_name(stated, first)):
             self.identity = "confirmed"
             reply = (f"Thanks, {name.split()[0]}. I'm calling to check in on how you're doing with your diabetes "
                      "management. How have you been feeling lately?")
@@ -396,6 +408,14 @@ class HCMVoiceAgent:
             role = "Patient" if msg["role"] == "user" else "Agent"
             transcript += f"\n{role}: {msg['content']}\n"
         return transcript
+
+
+def same_name(heard: str, expected: str) -> bool:
+    """Whether a name heard over the phone matches the patient's, allowing for transcription slips."""
+    heard, expected = heard.lower().strip(".,!? "), expected.lower()
+    if heard == expected:
+        return True
+    return heard[:1] == expected[:1] and SequenceMatcher(None, heard, expected).ratio() >= 0.6
 
 
 def parse_model_output(raw: str) -> dict:
