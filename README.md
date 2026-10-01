@@ -10,11 +10,39 @@ Meet **Clara**, a virtual assistant that calls patients on behalf of their healt
 - 🧠 **Generate replies with Claude or Azure OpenAI.** Uses Claude (`claude-opus-5`) or a model deployed in Azure AI Foundry, such as `gpt-5-mini`, chosen with the `LLM_PROVIDER` setting. Replies are based on the patient's name and risk drivers.
 - 🛡️ **Enforce safety guardrails.** Clara never diagnoses, gives medical advice, or suggests medication changes; risky replies are replaced with a safe referral to the patient's doctor or care team.
 - 🚨 **Handle emergencies.** Phrases like "chest pain" trigger an immediate 911 message and end the call.
-- 👀 **Show calls live.** A local page at `http://localhost:5000/live` shows each call as it happens: what the patient said (with speech-confidence warnings), Clara's replies and response times, blocked replies, and emergencies.
+- 👀 **Show calls live.** The `/live` page on the Azure server (password-protected) shows each call as it happens: what the patient said (with speech-confidence warnings), Clara's replies and response times, blocked replies, and emergencies.
 - 📂 **Place calls from a file upload.** Uploading a small JSON file to an Azure storage container makes an Azure Function place the call, limited to approved numbers.
 - 💬 **Run without a phone.** Text-only test modes let you chat with Clara or check the guardrails from the terminal.
 
 **[→ Getting Started: setup and your first test call →](./docs/GETTING_STARTED.md)**
+
+## Current workflow
+
+![Current workflow: a JSON upload to Azure storage triggers an Azure Function, which asks Twilio to call the patient; the Clara server on App Service runs the conversation with Azure OpenAI and guardrails.](./docs/images/current-workflow.svg)
+
+1. **Upload a request.** A care team member uploads a JSON file to the `call-requests` storage container, in the `incoming/` folder.
+2. **The Azure Function checks it.** It confirms the number is on the allow-list, the file is valid, and the hourly limit isn't reached. Then it asks Twilio to dial.
+3. **Twilio calls the patient** and carries the conversation both ways.
+4. **The Clara server runs the conversation.** Replies come from Azure OpenAI and pass through safety guardrails before Clara speaks them.
+5. **Watch it live** on the `/live` page.
+
+Key Vault holds the secrets for both apps. GitHub Actions tests the code and deploys it to Azure on every merge to `main`.
+
+**Sample request** ([`docs/samples/john-doe.json`](./docs/samples/john-doe.json)). Replace the number with one in `ALLOWED_CALL_NUMBERS` before uploading:
+
+```json
+{
+  "to": "1-XXX-XXX-XXXX",
+  "name": "John Doe",
+  "risk_drivers": [
+    "HbA1c above 7.5% at last check",
+    "Missed metformin refills in the last 60 days",
+    "No endocrinologist visit in over 12 months",
+    "ER visit for low blood sugar in last 90 days",
+    "Overdue annual diabetic eye exam"
+  ]
+}
+```
 
 > ⚠️ This is a development prototype. It is **not yet HIPAA-compliant** and must not be used with real patient data. The capabilities below describe the target design.
 

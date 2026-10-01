@@ -1,0 +1,11 @@
+{
+  "to": "1-XXX-XXX-XXXX",
+  "name": "John Doe",
+  "risk_drivers": [
+    "HbA1c above 7.5% at last check",
+    "Missed metformin refills in the last 60 days",
+    "No endocrinologist visit in over 12 months",
+    "ER visit for low blood sugar in last 90 days",
+    "Overdue annual diabetic eye exam"
+  ]
+}
