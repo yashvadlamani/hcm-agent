@@ -114,7 +114,7 @@ Post-Call Execution (tools, escalations, logging)
 
 The guide covers what works today, how a call flows through the app, setting up Claude, Twilio and Azure, and placing your first test call.
 
-The Clara server runs on Azure App Service. See **[Deploying to Azure](./docs/DEPLOY_AZURE.md)** for deploying it and turning it on and off.
+The Clara server runs on Azure App Service. See **[Deploying to Azure](./docs/DEPLOY_AZURE.md)** for deploying it and turning it on and off. Pushes to `main` redeploy the server and the call-request function automatically through GitHub Actions.
 
 ### Quick reference
 
@@ -158,7 +158,7 @@ hcm-agent/
 ├── tests/                      # Automated tests (no API calls, keys or phone needed)
 ├── deploy/azure/               # Deploy, start and stop scripts for App Service and the Function
 ├── docs/                       # Getting started, Azure deployment, full design
-├── .github/workflows/          # CI (lint and tests) and the Function's deploy on push
+├── .github/workflows/          # CI (lint and tests), plus auto-deploys of the server and the Function
 ├── pyproject.toml              # Project metadata, commands, test and lint settings
 ├── requirements.txt            # Runtime dependencies (Azure installs from this)
 ├── .env.example                # Template for keys and settings

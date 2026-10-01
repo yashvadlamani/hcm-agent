@@ -64,7 +64,7 @@ The script:
 3. sets the startup command, Always On and HTTPS-only
 4. uploads the code
 
-Expect 5–10 minutes the first time. Re-run the same command whenever you change code or `.env` settings.
+Expect 5–10 minutes the first time. Re-run the same command whenever you change `.env` settings. Code changes can deploy themselves from GitHub instead: see [Automatic deploys from GitHub](#automatic-deploys-from-github).
 
 ### Where the secrets live
 
@@ -133,11 +133,7 @@ request.json ──upload──▶ storage container call-requests/incoming/
 
    Re-run it whenever you change these settings in `.env`. It's safe to repeat.
 
-3. Redeploy automatically from GitHub (optional). In your GitHub repository, go to **Settings → Secrets and variables → Actions** and add:
-   - the secret `AZURE_FUNCTIONAPP_PUBLISH_PROFILE`, containing the whole `publish-profile.xml` file (then delete that file: it's a password)
-   - the variable `AZURE_FUNCTIONAPP_NAME`, set to your function app's name (not needed if it's `clara-hcm-agent-calls`)
-
-   From then on, every push that changes `functions/` or `src/hcm_agent/` redeploys the function ([workflow](../.github/workflows/deploy-function.yml)).
+3. Optionally, let GitHub redeploy the function's code on every push: see [Automatic deploys from GitHub](#automatic-deploys-from-github).
 
 ### Place a call
 
@@ -167,6 +163,46 @@ The function places a call only when all of these hold:
 - Fewer than `MAX_CALLS_PER_HOUR` calls were placed in the last hour.
 
 Each file is handled once, even if Azure delivers the event twice.
+
+## Automatic deploys from GitHub
+
+Two GitHub Actions workflows redeploy code when it changes on `main`:
+
+| Workflow | Deploys | Runs when a push to `main` changes |
+|---|---|---|
+| [deploy-server.yml](../.github/workflows/deploy-server.yml) | The Clara server (App Service). Lint and tests must pass first | `src/hcm_agent/`, `requirements.txt`, `deploy/azure/package.py` |
+| [deploy-function.yml](../.github/workflows/deploy-function.yml) | The call-request function | `functions/`, `src/hcm_agent/`, `deploy/azure/package_function.py` |
+
+Watch them in the repository's **Actions** tab. Either can also be run by hand: **Actions → the workflow → Run workflow**.
+
+They deploy code only. Settings and secrets still come from `.env` through the deploy scripts, so re-run those when `.env` changes.
+
+### Set up (one time)
+
+Each workflow needs a publish profile, which lets GitHub deploy to that app. The deploy scripts can write one:
+
+```powershell
+.\deploy\azure\deploy.ps1 -AppName <app> -Location centralus -PublishProfilePath .\server-profile.xml
+.\deploy\azure\deploy_function.ps1 -FunctionApp <function-app-name> -ClaraAppName <app> -PublishProfilePath .\function-profile.xml
+```
+
+In your GitHub repository, go to **Settings → Secrets and variables → Actions** and add:
+
+| Name | Kind | Value |
+|---|---|---|
+| `AZURE_WEBAPP_PUBLISH_PROFILE` | Secret | The whole of `server-profile.xml` |
+| `AZURE_FUNCTIONAPP_PUBLISH_PROFILE` | Secret | The whole of `function-profile.xml` |
+| `AZURE_WEBAPP_NAME` | Variable | Your app's name; not needed if it's `clara-hcm-agent-demo` |
+| `AZURE_FUNCTIONAPP_NAME` | Variable | Your function app's name; not needed if it's `clara-hcm-agent-calls` |
+
+Then delete both `.xml` files: they work like passwords. Without a secret, its workflow skips the deploy.
+
+### Good to know
+
+- **A server deploy restarts Clara and drops any call in progress.** Merge to `main` between test calls.
+- **The Free tier's deploy service is slow.** A server deploy takes 5–15 minutes and is retried once if Azure times out. The workflow then waits for Clara to respond.
+- **If the app is stopped** (`stop.ps1`), the code still deploys and runs the next time you start it. The workflow shows a warning instead of failing.
+- **If a profile stops working** (for example, after you reset it in the portal), re-run the deploy script with `-PublishProfilePath` and update the secret.
 
 ---
 
@@ -249,6 +285,7 @@ You'll see the same output a local terminal shows: each patient turn, Clara's re
 | A setting shows a red *Key vault reference* error in the portal | The app's identity can't read the vault yet (new access can take a few minutes). Re-run the deploy script |
 | `/live` keeps asking for a password | Use the exact `LIVE_VIEW_PASSWORD` from the `.env` you deployed with |
 | Call says *"We could not reach your TwiML server"* | Make sure the app is on (`start.ps1`), `/` loads, and `--url` matches your Azure address |
+| A deploy workflow fails with an authentication error | The publish profile is out of date. Re-run the deploy script with `-PublishProfilePath` and update the GitHub secret |
 | An uploaded request stays in `incoming/` | Check the function's logs: **Function app → call_request → Invocations**. Re-run `deploy_function.ps1` to recreate the trigger |
 | The call gets "Sorry, this call session has expired" | The app restarted mid-call (for example, after a deploy). Place a new call |
 

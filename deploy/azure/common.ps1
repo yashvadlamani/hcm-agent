@@ -127,3 +127,17 @@ function Write-AppSettings([string]$Kind, [string]$ResourceGroup, [string]$App, 
         Remove-Item $file -ErrorAction SilentlyContinue
     }
 }
+
+# Lets GitHub Actions deploy the app: turns on publish-profile (basic) deployment auth and,
+# when $Path is given, writes the publish profile there. The file is a secret: add it to GitHub,
+# then delete it. Uses the ARM API because the CLI's export doesn't support Flex Consumption.
+function Export-PublishProfile([string]$ResourceGroup, [string]$App, [string]$Path) {
+    Invoke-Az resource update -g $ResourceGroup --namespace Microsoft.Web --resource-type basicPublishingCredentialsPolicies `
+        --parent "sites/$App" -n scm --set properties.allow=true -o none | Out-Null
+    if ($Path) {
+        $siteId = (Invoke-Az webapp show -g $ResourceGroup -n $App --query id -o tsv).Trim()
+        Invoke-Az rest --method post --url "https://management.azure.com$siteId/publishxml?api-version=2024-04-01" `
+            --output-file $Path | Out-Null
+        Write-Host "  Publish profile written to $Path (a secret: add it to GitHub, then delete the file)."
+    }
+}
