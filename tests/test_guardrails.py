@@ -39,7 +39,37 @@ def test_emergency_statements_are_detected(statement):
 @pytest.mark.parametrize("statement", [
     "I'm feeling a bit stressed.",
     "I'm having trouble getting my refills because of the cost.",
+    "Can someone help me with my refills?",
+    "Could you help me understand my insurance card?",
 ])
 def test_ordinary_statements_are_not_emergencies(statement):
     is_emergency, _ = guardrails.check_patient_statement(statement)
     assert not is_emergency
+
+
+def test_mental_health_statements_are_labeled():
+    is_emergency, reason = guardrails.check_patient_statement("Sometimes I want to die")
+    assert is_emergency and reason.startswith("Mental health")
+
+
+@pytest.mark.parametrize("reply", [
+    "I'll connect you with your care manager right away.",
+    "Let me transfer you to a nurse.",
+    "Someone will call you back this afternoon.",
+    "Your care team will reach out to you tomorrow.",
+    "I'll send you a text with the details.",
+    "I'll make sure your doctor sees this.",
+    "I promise this will be sorted out.",
+])
+def test_promises_are_flagged(reply):
+    assert guardrails.check_agent_response(reply)[0] == GuardrailViolation.PROMISE
+
+
+@pytest.mark.parametrize("reply", [
+    "I'll note that for your care team so they can follow up.",
+    "Please call your doctor's office or the number on your insurance card.",
+    "I've noted that you'd like the feedback form.",
+    "Is there anything else I can help you with today?",
+])
+def test_honest_replies_are_not_promises(reply):
+    assert guardrails.check_agent_response(reply)[0] == GuardrailViolation.NONE

@@ -46,23 +46,57 @@ sequenceDiagram
 ```
 
 1. **Start.** A JSON request lands in `call-requests/incoming/`, or someone runs `clara-call`. The function checks the request, wakes the server and asks ACS to dial.
-2. **Connect.** When the patient answers, ACS sends `CallConnected` to the server's callback address, and Clara greets the patient by name.
-3. **Each turn.** ACS transcribes the patient and sends `RecognizeCompleted`. The server:
-   1. checks for emergency phrases. On a match, it skips the model, plays a fixed 911 message and hangs up.
-   2. asks the model for a reply based on the patient's name and risk drivers.
-   3. runs the reply through the guardrails, replacing unsafe replies with a safe referral.
-   4. asks ACS to speak and listen again.
-4. **End.** The call ends on goodbye, after an emergency message, or after two silent turns. The transcript goes to the server log.
+2. **Connect and confirm who answered.** When someone answers, ACS sends `CallConnected`. Clara says *"Hi, I'm Clara, a virtual assistant from your health insurance care team. May I speak with {name}, please?"* For privacy, **nothing health-related is said until the patient confirms who they are.**
 
-Each event is acknowledged immediately and handled in the background, so a slow model reply never times out the call.
+   | Answer | What Clara does |
+   |---|---|
+   | *"Yes, this is Maria"*, *"Speaking"* | *"Thanks, Maria. I'm calling to check in on how you're doing with your diabetes management…"*, then the check-in |
+   | *"No, this is John"*, *"She's not home"* | *"What would be a good time to reach Maria?"* She notes the answer and ends politely. If a time was already given, she notes it right away |
+   | *"Wrong number"* | Apologizes and ends the call |
+   | Unclear | Asks once more, then asks for a good time |
+
+   The callback time and who answered appear on the dashboard. Clara doesn't promise a callback: scheduled callbacks are on the [roadmap](./roadmap.md).
+3. **Each turn.** ACS transcribes the patient and sends `RecognizeCompleted`. The agent ([`conversation.py`](../hcm_agent/agent/conversation.py)):
+   1. runs an **instant keyword check** for emergencies, such as "chest pain" or "want to die". On a match it skips the model entirely.
+   2. makes **one model request** that returns structured JSON: Clara's reply, a **clinical emergency assessment**, the patient's **sentiment** (0–1), and the **conversation state**.
+   3. runs the reply through the **guardrails**, replacing diagnoses, medical advice, medication changes and **promises** with honest, safe wording.
+   4. asks ACS to speak and listen again.
+4. **End.** A call ends in one of these ways:
+
+   | Ending | What Clara does |
+   |---|---|
+   | The patient's needs are met | Asks *"Is there anything else I can help you with today?"*; on "no", moves to the closing |
+   | The patient says goodbye | Moves straight to the closing |
+   | Closing | Asks *"Would you like a short feedback form by text message?"*, records yes or no, thanks the patient and hangs up |
+   | Emergency | Plays a fixed message (911, or the 988 crisis line for mental-health crises) and hangs up |
+   | Patient not available or wrong number | Notes a good time to reach the patient (or apologizes) and hangs up |
+   | Silence | Re-asks once, then says goodbye |
+
+   The transcript and a call summary go to the server log.
+
+Each event is acknowledged immediately and handled in the background, so a slow model reply never times out the call. One shared model connection serves every call, and a warm-up request goes out while the greeting plays, so the patient's first turn is as fast as the rest (about 2 seconds).
 
 ## Guardrails
 
-1. **System prompt** ([`prompts.py`](../hcm_agent/agent/prompts.py)): Clara must never diagnose, give medical advice or suggest medication changes, and refers the patient to their doctor or care team instead.
-2. **Response check** ([`guardrails.py`](../hcm_agent/agent/guardrails.py)): every reply is scanned for diagnosis, medical-advice and prescription-change patterns. A match replaces it with a safe fallback.
-3. **Emergency check:** patient statements are scanned for phrases such as "chest pain" before the model is ever called.
+1. **System prompt** ([`prompts.py`](../hcm_agent/agent/prompts.py)): Clara never diagnoses, gives medical advice or suggests medication changes, and **makes no promises**. She can't connect, transfer, schedule, send or arrange anything, or commit anyone to call back. The only thing she offers is to note something for the care team.
+2. **Response check** ([`guardrails.py`](../hcm_agent/agent/guardrails.py)): every reply is scanned for diagnosis, medical-advice, prescription-change and promise patterns. A match replaces it with a safe fallback.
+3. **Emergencies, three layers:**
+   - **Keywords:** an instant check, such as "chest pain" or "want to die".
+   - **The model's clinical assessment:** it recognizes, in everyday words, severe low blood sugar (shaking, confusion, sweating), diabetic ketoacidosis (vomiting, fruity breath), stroke and heart-attack signs, breathing trouble, and suicidal thoughts.
+   - **Azure's content-safety filter:** when it blocks a message as self-harm, Clara treats it as a mental-health crisis, never brushes it off.
 
-Every blocked reply and emergency appears on the live dashboard.
+Every blocked reply and emergency appears on the live dashboard, including which layer caught it.
+
+## Live dashboard
+
+The `/live` page shows each call as it happens:
+- **Turns:** what the patient said (with speech-recognition confidence) and Clara's replies, with timings.
+- **Sentiment:** starts at 0.50 (neutral) and updates every turn. It shows a score, a label (Negative below 0.35, Positive above 0.65), a trend line, and the change under each patient message. Each reading is smoothed (60% new, 40% previous) so one remark doesn't swing it.
+- **Guardrails and emergencies:** blocked replies, and emergencies with the reason and which layer caught them.
+- **Endings:** how each call ended, and whether the patient asked for the feedback form.
+- **Who answered:** whether the patient confirmed their identity, or who answered instead and the good time to call back.
+
+The feedback answer is recorded but no text is sent yet: the ACS trial number can't send SMS. Sending it is on the [roadmap](./roadmap.md).
 
 ## Code layout
 

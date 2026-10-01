@@ -9,9 +9,9 @@ Where Clara is today, what comes next, what's needed before calling real patient
 | Area | Built | Next |
 |---|---|---|
 | Phone calls | ACS calls, Azure neural voice and speech recognition | Purchased number, branded caller ID |
-| Conversation | Personalized replies (Azure OpenAI or Claude), guardrails, emergency handling | Answers grounded in approved clinical content (RAG) |
+| Conversation | Personalized replies, guardrails (including no promises), clinical emergency detection, natural endings, live sentiment | Answers grounded in approved clinical content (RAG) |
 | Starting calls | JSON upload → Azure Function, allow-list, hourly limit | Patient eligibility: consent, Do-Not-Call, calling hours |
-| After the call | Transcript in the server log, live dashboard | Stored call records, care-manager escalation, follow-up tasks |
+| After the call | Transcript and summary in the server log, live dashboard, feedback-form opt-in recorded | Text the feedback form (needs an SMS-capable number), stored call records, care-manager escalation |
 | Platform | App Service, Functions, Key Vault, CI and automatic deploys | Always-on hosting, shared call state, monitoring and alerts |
 | Compliance | Test data only | BAA, audit logging, clinical and legal review |
 
@@ -19,18 +19,20 @@ Where Clara is today, what comes next, what's needed before calling real patient
 
 1. **Pilot readiness**
    - **Eligibility checks** instead of the test allow-list: consent on file, internal and national Do-Not-Call lists, calling hours (8 AM to 9 PM in the patient's time zone) and frequency limits.
-   - **A purchased local number** with branded caller ID, which needs a pay-as-you-go subscription.
+   - **A purchased local number** with branded caller ID, which needs a pay-as-you-go subscription. With text messaging enabled, Clara can then send the feedback form patients ask for; today their answer is only recorded.
    - **Always-on hosting** (App Service Basic or higher).
    - **Encrypted call records**, instead of only log entries.
-2. **Care-team integration**
+2. **Scheduled callbacks**
+   - Turn the "good time to reach the patient" that Clara notes today into a scheduled call: parse the time, respect calling hours, and place the call automatically.
+3. **Care-team integration**
    - Care-manager escalation and follow-up tasks; Clara only offers these today.
    - An emergency notification to the care manager.
    - A call summary per patient.
-3. **Smarter conversations**
+4. **Smarter conversations**
    - Grounded answers (RAG) from approved clinical documents.
    - Streaming audio to a realtime model for faster turns.
    - Custom speech recognition for drug names and conditions.
-4. **Production**
+5. **Production**
    - Compliance audit, monitoring and alerting, scale-out with shared call state.
    - The broader capabilities in the [target design](./target-design.md): ML-triggered outreach, PBM refill routing and scheduling.
 
@@ -50,6 +52,16 @@ Only the free trial number is limited to verified numbers. A purchased ACS numbe
 ## History
 
 Notable changes, newest first.
+
+**2026-10-01: Smarter conversations**
+- **No promises:** the prompt and a new guardrail stop Clara from promising to connect, transfer, schedule, send or arrange anything.
+- **Emergencies from context:** the model judges every turn with clinical knowledge, such as low blood sugar, DKA, stroke or heart signs, and suicidal thoughts. Keywords stay as an instant safety net, and a self-harm block by Azure's content filter is treated as a crisis. Mental-health crises get the 988 crisis line.
+- **Identity check first:** Clara asks for the patient by name and says nothing health-related until they confirm. If someone else answers, she asks for a good time to reach the patient and notes it. Wrong numbers end politely.
+- **Natural endings:** "anything else?" → no → feedback-form question → goodbye. Saying goodbye leads to the same closing.
+- **Feedback form opt-in:** Clara asks and records yes or no; sending the text comes later.
+- **Live sentiment:** 0–1, starting neutral, updated every turn on the dashboard with a trend line.
+- **Faster first turn:** a shared model connection and a warm-up while the greeting plays.
+- Fixed: "Can someone help me…" was wrongly treated as an emergency keyword.
 
 **2026-10-01: Azure Communication Services and a cleaner repository**
 - Calls moved from Twilio to **Azure Communication Services**, putting the whole system in Azure and removing the Twilio-era workarounds.

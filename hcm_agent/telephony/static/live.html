@@ -66,6 +66,27 @@
   .divider { align-self: center; color: var(--muted); font-size: 12px; padding: 4px 12px;
              border: 1px solid var(--line); border-radius: 999px; }
   .typing { align-self: flex-start; color: var(--muted); font-size: 13px; font-style: italic; }
+  .pill.feedback-yes { background: #e3f5ea; color: var(--ok); }
+  .pill.feedback-no { background: var(--patient); color: var(--muted); }
+  .sentiment { display: grid; grid-template-columns: 170px 1fr; gap: 16px; align-items: center;
+               margin-top: 10px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; }
+  .sentiment .label { font-size: 12px; color: var(--muted); }
+  .sentiment .score { font-size: 26px; font-weight: 600; line-height: 1.1; display: flex; gap: 8px; align-items: center; }
+  .mood-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+  .mood-pill.positive { background: #e3f5ea; color: var(--ok); }
+  .mood-pill.neutral { background: var(--patient); color: var(--muted); }
+  .mood-pill.negative { background: var(--bad-soft); color: var(--bad); }
+  .meter { position: relative; height: 8px; border-radius: 4px; margin-top: 8px;
+           background: linear-gradient(90deg, var(--bad-soft) 0 35%, var(--patient) 35% 65%, #e3f5ea 65% 100%); }
+  .meter .mark { position: absolute; top: -4px; width: 3px; height: 16px; border-radius: 2px; background: var(--text);
+                 transition: left .4s ease; }
+  .scale { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); margin-top: 3px; }
+  .trend { width: 100%; height: 80px; }
+  .up { color: var(--ok); } .down { color: var(--bad); }
+  @media (prefers-color-scheme: dark) {
+    .pill.feedback-yes, .mood-pill.positive { background: #1d3a2a; }
+    .meter { background: linear-gradient(90deg, var(--bad-soft) 0 35%, var(--patient) 35% 65%, #1d3a2a 65% 100%); }
+  }
   .empty { margin: auto; text-align: center; color: var(--muted); max-width: 420px; padding: 20px; }
   .empty code { display: block; margin-top: 10px; padding: 8px; background: var(--panel);
                 border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
@@ -88,8 +109,17 @@
   </aside>
   <section>
     <div class="call-head" id="call-head" hidden>
-      <div class="title"><span id="head-name"></span><span class="pill" id="head-status"></span></div>
+      <div class="title"><span id="head-name"></span><span class="pill" id="head-status"></span><span class="pill" id="head-feedback" hidden></span><span class="pill" id="head-identity" hidden></span></div>
       <div class="meta" id="head-meta"></div>
+      <div class="sentiment" id="sentiment">
+        <div>
+          <div class="label">Patient sentiment</div>
+          <div class="score"><span id="sent-score">0.50</span><span class="mood-pill neutral" id="sent-label">Neutral</span></div>
+          <div class="meter"><div class="mark" id="sent-mark" style="left: calc(50% - 1px)"></div></div>
+          <div class="scale"><span>0 negative</span><span>0.5</span><span>1 positive</span></div>
+        </div>
+        <svg class="trend" id="sent-trend" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Sentiment trend"></svg>
+      </div>
     </div>
     <div class="timeline" id="timeline">
       <div class="empty">
@@ -121,7 +151,11 @@ const RULES = {
   medical_diagnosis: "a diagnosis",
   medical_advice: "medical advice",
   prescription_change: "a medication change",
+  promise: "a promise Clara can't keep",
 };
+const mood = (v) => v < 0.35 ? "negative" : v > 0.65 ? "positive" : "neutral";
+const MOOD_LABEL = { negative: "Negative", neutral: "Neutral", positive: "Positive" };
+const arrow = (change) => change > 0 ? "▲" : change < 0 ? "▼" : "";
 
 function handle(event) {
   if (event.boot !== bootId) {
@@ -132,13 +166,23 @@ function handle(event) {
   lastEventId = event.id;
   let call = calls.get(event.call);
   if (!call) {
-    call = { name: "Unknown caller", drivers: [], started: event.ts, ended: null, status: "live", events: [] };
+    call = { name: "Unknown caller", drivers: [], started: event.ts, ended: null, status: "live", events: [],
+             sentiment: 0.5, trend: [0.5], change: 0, feedback: null, identity: null, spokeWith: null, callback: null };
     calls.set(event.call, call);
   }
   if (event.type === "call_started") {
     call.name = event.name; call.drivers = event.drivers || []; call.started = event.ts;
+    call.sentiment = event.sentiment ?? 0.5; call.trend = [call.sentiment];
     if (!userPicked) selected = event.call;
   }
+  if (event.type === "sentiment") {
+    call.sentiment = event.value; call.change = event.change; call.trend.push(event.value);
+    const lastPatient = [...call.events].reverse().find((e) => e.type === "patient");
+    if (lastPatient) lastPatient.mood = { value: event.value, change: event.change };
+  }
+  if (event.type === "feedback") call.feedback = event.requested;
+  if (event.type === "identity") { call.identity = event.status; call.spokeWith = event.spoke_with; }
+  if (event.type === "callback") call.callback = event.time;
   if (event.type === "emergency") call.status = "emergency";
   if (event.type === "call_ended") {
     call.ended = event.ts;
@@ -158,7 +202,9 @@ function renderList() {
     const row = el("div", "row");
     row.append(el("span", "name", call.name));
     row.append(el("span", `pill ${call.status}`, call.status === "live" ? "Live" : call.status === "emergency" ? "Emergency" : "Ended"));
-    item.append(row, el("div", "sub", `${clock(call.started)} · ${sid.slice(-6)}`));
+    const sub = el("div", "sub", `${clock(call.started)} · mood ${call.sentiment.toFixed(2)} `);
+    if (call.change) sub.append(el("span", call.change > 0 ? "up" : "down", arrow(call.change)));
+    item.append(row, sub);
     item.onclick = () => { selected = sid; userPicked = true; renderList(); renderCall(); };
     list.append(item);
   });
@@ -172,6 +218,22 @@ function renderCall() {
   const status = $("head-status");
   status.className = `pill ${call.status}`;
   status.textContent = call.status === "live" ? "Live" : call.status === "emergency" ? "Emergency" : "Ended";
+  const feedback = $("head-feedback");
+  feedback.hidden = call.feedback === null;
+  if (call.feedback !== null) {
+    feedback.className = `pill ${call.feedback ? "feedback-yes" : "feedback-no"}`;
+    feedback.textContent = call.feedback ? "Feedback form: requested" : "Feedback form: declined";
+  }
+  const identity = $("head-identity");
+  identity.hidden = !call.callback && call.identity !== "wrong_number";
+  if (call.callback) {
+    identity.className = "pill live";
+    identity.textContent = `Callback requested: ${call.callback}`;
+  } else if (call.identity === "wrong_number") {
+    identity.className = "pill ended";
+    identity.textContent = "Wrong number";
+  }
+  renderSentiment(call);
   updateMeta();
 
   const timeline = $("timeline");
@@ -194,6 +256,12 @@ function renderCall() {
         msg.append(el("div", "tag" + (pct < 60 ? " low" : ""),
           pct < 60 ? `Low speech confidence (${pct}%), may be misheard` : `Speech confidence ${pct}%`));
       }
+      if (e.mood) {
+        const chip = el("div", "tag", `Mood ${e.mood.value.toFixed(2)} `);
+        if (e.mood.change) chip.append(el("span", e.mood.change > 0 ? "up" : "down",
+          `${arrow(e.mood.change)} ${Math.abs(e.mood.change).toFixed(2)}`));
+        msg.append(chip);
+      }
       timeline.append(msg);
     } else if (e.type === "thinking") {
       waiting = true;
@@ -206,14 +274,54 @@ function renderCall() {
       card.append(details);
       timeline.append(card);
     } else if (e.type === "emergency") {
-      const trigger = (e.reason || "").replace(/^[^:]*:\s*/, "");
-      timeline.append(el("div", "card emergency", `Emergency detected (“${trigger}”). Clara skipped the model and gave the 911 message.`));
+      const reason = (e.reason || "").replace(/^[^:]*:\s*/, "");
+      const how = e.source === "ai" ? "AI assessment" : "keyword";
+      const message = e.kind === "mental_health" ? "the 988 crisis line message" : "the 911 message";
+      timeline.append(el("div", "card emergency",
+        `${e.kind === "mental_health" ? "Mental health crisis" : "Medical emergency"} detected by ${how}: ${reason}. Clara gave ${message} and ended the call.`));
+    } else if (e.type === "identity") {
+      const text = e.status === "confirmed" ? "Identity confirmed · patient on the line"
+        : e.status === "wrong_number" ? "Wrong number · Clara apologized and ended the call"
+        : `Patient not available${e.spoke_with ? ` · spoke with ${e.spoke_with}` : ""}`;
+      timeline.append(el("div", "divider", text));
+    } else if (e.type === "callback") {
+      timeline.append(el("div", "divider", `Good time to reach the patient: “${e.time}”`));
+    } else if (e.type === "closing") {
+      timeline.append(el("div", "divider", `Wrapping up · ${e.reason}`));
+    } else if (e.type === "feedback") {
+      timeline.append(el("div", "divider", e.requested ? "Feedback form requested" : "Feedback form declined"));
     } else if (e.type === "call_ended") {
       timeline.append(el("div", "divider", `Call ended · ${e.reason}`));
     }
   }
   if (waiting && !call.ended) timeline.append(el("div", "typing", "Clara is preparing a reply…"));
   if (atBottom || call.status === "live") timeline.scrollTop = timeline.scrollHeight;
+}
+
+function renderSentiment(call) {
+  const value = call.sentiment, tone = mood(value);
+  $("sent-score").textContent = value.toFixed(2);
+  const label = $("sent-label");
+  label.className = `mood-pill ${tone}`;
+  label.textContent = MOOD_LABEL[tone];
+  $("sent-mark").style.left = `calc(${(value * 100).toFixed(0)}% - 1px)`;
+
+  // Trend: one point per reading, 0 at the bottom and 1 at the top, with the 0.5 line dashed.
+  const svg = $("sent-trend"), ns = "http://www.w3.org/2000/svg";
+  svg.replaceChildren();
+  const shape = (tag, attrs) => {
+    const node = document.createElementNS(ns, tag);
+    Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
+    svg.append(node);
+  };
+  shape("rect", { x: 0, y: 0, width: 300, height: 28, fill: "var(--ok)", opacity: 0.08 });
+  shape("rect", { x: 0, y: 52, width: 300, height: 28, fill: "var(--bad)", opacity: 0.08 });
+  shape("line", { x1: 0, y1: 40, x2: 300, y2: 40, stroke: "var(--line)", "stroke-dasharray": "4 4" });
+  const pts = call.trend.map((v, i) => [call.trend.length === 1 ? 150 : 8 + (i * 284) / (call.trend.length - 1),
+                                        76 - v * 72]);
+  shape("polyline", { points: pts.map((p) => p.join(",")).join(" "), fill: "none",
+                      stroke: "var(--accent)", "stroke-width": 2, "vector-effect": "non-scaling-stroke" });
+  pts.forEach(([x, y]) => shape("circle", { cx: x, cy: y, r: 3, fill: "var(--accent)" }));
 }
 
 function updateMeta() {
