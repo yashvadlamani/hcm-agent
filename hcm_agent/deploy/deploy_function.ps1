@@ -4,7 +4,7 @@ Deploys the call-request Azure Function: uploading a JSON file to the storage co
 
 Creates (or updates) in the resource group:
   - a storage account with the private `call-requests` container
-  - a Flex Consumption Function App (Python 3.12) running functions/function_app.py
+  - a Flex Consumption Function App (Python 3.12) running hcm_agent/azure_functions/function_app.py
   - an Event Grid subscription that triggers the function for each new incoming/*.json
 Secrets (ACS connection string, webhook key, storage connection) go to the Key Vault shared with the Clara
 server; the Function app reads them through Key Vault references.
@@ -13,7 +13,7 @@ Safe to re-run: use it again to push code or .env setting changes. GitHub Action
 (.github/workflows/deploy-function.yml) can also redeploy the code on every push.
 
 Usage:
-  .\deploy\azure\deploy_function.ps1 -FunctionApp clara-hcm-agent-calls -ClaraAppName clara-hcm-agent-demo
+  .\hcm_agent\deploy\deploy_function.ps1 -FunctionApp clara-hcm-agent-calls -ClaraAppName clara-hcm-agent-demo
 #>
 param(
     [Parameter(Mandatory = $true)][string]$FunctionApp,
@@ -50,7 +50,7 @@ Invoke-Az storage account create -g $ResourceGroup -n $StorageAccount -l $Locati
 Invoke-Az storage container create --account-name $StorageAccount --auth-mode key -n $container -o none | Out-Null
 # A placeholder keeps incoming/ visible between uploads (blob storage has no real folders).
 Invoke-Az storage blob upload --account-name $StorageAccount --auth-mode key -c $container -n incoming/README.txt `
-    -f (Join-Path $root "functions\incoming_README.txt") --overwrite true -o none | Out-Null
+    -f (Join-Path $root "hcm_agent\azure_functions\incoming_README.txt") --overwrite true -o none | Out-Null
 $connection = (Invoke-Az storage account show-connection-string -g $ResourceGroup -n $StorageAccount --query connectionString -o tsv).Trim()
 
 Write-Host "2/7 Function app '$FunctionApp' (Flex Consumption, Python 3.12)"
@@ -76,7 +76,7 @@ Remove-RetiredSettings functionapp $ResourceGroup $FunctionApp
 
 Write-Host "4/7 Uploading code (Azure installs the requirements; this takes a few minutes)"
 $zip = Join-Path $env:TEMP "clara-function.zip"
-python (Join-Path $PSScriptRoot "package_function.py") $zip
+python (Join-Path $PSScriptRoot "package.py") function $zip
 if ($LASTEXITCODE -ne 0) { throw "Packaging the function failed" }
 try {
     Invoke-Az functionapp deployment source config-zip -g $ResourceGroup -n $FunctionApp --src $zip --build-remote true -o none | Out-Null

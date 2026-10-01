@@ -3,7 +3,7 @@ Turns the Clara app off and makes sure its plan is on the Free tier, so it uses 
 A stopped app on a paid plan is still billed, which is why this also changes the tier
 (a no-op when the plan is already on F1).
 
-Usage:  .\deploy\azure\stop.ps1 -AppName clara-<your-app>
+Usage:  .\hcm_agent\deploy\stop.ps1 -AppName clara-<your-app>
 #>
 param(
     [Parameter(Mandatory = $true)][string]$AppName,

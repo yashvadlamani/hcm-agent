@@ -8,11 +8,17 @@ version = "0.1.0"
 description = "Clara: an AI voice outreach agent for high-risk diabetes patients (prototype)"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
 # Runtime dependencies live in requirements.txt, which Azure App Service installs from directly.
 dynamic = ["dependencies"]
 
+[project.urls]
+Repository = "https://github.com/yashvadlamani/hcm-agent"
+Documentation = "https://github.com/yashvadlamani/hcm-agent/tree/main/docs"
+Changelog = "https://github.com/yashvadlamani/hcm-agent/blob/main/docs/roadmap.md#history"
+
 [project.optional-dependencies]
-# azure-* are only needed to test the call-request Azure Function (functions/).
+# azure-* are only needed to test the call-request Azure Function (hcm_agent/azure_functions/).
 dev = ["pytest", "ruff", "azure-functions", "azure-storage-blob"]
 
 [project.scripts]
@@ -24,18 +30,20 @@ clara-chat = "hcm_agent.cli.chat_demo:main"
 dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["hcm_agent*"]
+# The Azure Function and deploy scripts live in hcm_agent/ but are deployed separately, not installed.
+exclude = ["hcm_agent.azure_functions*", "hcm_agent.deploy*"]
 
 [tool.setuptools.package-data]
 "hcm_agent.telephony" = ["static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "functions"]
+pythonpath = [".", "hcm_agent/azure_functions"]
 
 [tool.ruff]
 line-length = 120
-src = ["src", "tests", "functions"]
+src = [".", "tests", "hcm_agent/azure_functions"]
 extend-exclude = ["docs"]
 
 [tool.ruff.lint]

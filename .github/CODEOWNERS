@@ -1,0 +1,7 @@
+# Code owners are requested automatically as reviewers on pull requests.
+* @yashvadlamani
+
+# Safety-critical: what Clara says, emergency handling, and who may be called.
+/hcm_agent/agent/prompts.py      @yashvadlamani
+/hcm_agent/agent/guardrails.py   @yashvadlamani
+/hcm_agent/azure_functions/      @yashvadlamani

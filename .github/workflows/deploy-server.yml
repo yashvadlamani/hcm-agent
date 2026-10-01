@@ -2,7 +2,7 @@ name: Deploy Clara server
 
 # Redeploys the Clara phone server (Azure App Service) whenever its code changes on main.
 # Runs the lint and tests first and deploys only if they pass. Needs the repository secret
-# AZURE_WEBAPP_PUBLISH_PROFILE; see docs/DEPLOY_AZURE.md. Without it, the deploy is skipped.
+# AZURE_WEBAPP_PUBLISH_PROFILE; see docs/setup.md. Without it, the deploy is skipped.
 #
 # Deploying restarts the app, which drops any call in progress.
 
@@ -10,9 +10,9 @@ on:
   push:
     branches: [main]
     paths:
-      - "src/hcm_agent/**"
+      - "hcm_agent/**"
+      - "!hcm_agent/azure_functions/**"   # the function has its own workflow
       - "requirements.txt"
-      - "deploy/azure/package.py"
       - ".github/workflows/deploy-server.yml"
   workflow_dispatch:
 
@@ -56,7 +56,7 @@ jobs:
 
       - name: Build the app package
         if: steps.secret.outputs.present == 'true'
-        run: python deploy/azure/package.py clara-app.zip
+        run: python hcm_agent/deploy/package.py server clara-app.zip
 
       # Azure installs requirements.txt during the deploy (SCM_DO_BUILD_DURING_DEPLOYMENT).
       # The Free tier's deploy service sometimes times out, so try twice.

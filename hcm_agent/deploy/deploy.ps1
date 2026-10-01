@@ -6,7 +6,7 @@ to push code or .env setting changes (including new key values).
 Code changes on main also deploy automatically through GitHub Actions
 (.github/workflows/deploy-server.yml); -PublishProfilePath writes the profile it needs.
 
-Usage:  .\deploy\azure\deploy.ps1 -AppName clara-<something-unique>
+Usage:  .\hcm_agent\deploy\deploy.ps1 -AppName clara-<something-unique>
 #>
 param(
     [Parameter(Mandatory = $true)][string]$AppName,
@@ -77,7 +77,7 @@ Invoke-Az webapp log config --resource-group $ResourceGroup --name $AppName --do
 
 Write-Host "6/6 Uploading code (Azure installs the requirements; this takes a few minutes)"
 $zip = Join-Path $env:TEMP "clara-app.zip"
-python (Join-Path $PSScriptRoot "package.py") $zip
+python (Join-Path $PSScriptRoot "package.py") server $zip
 if ($LASTEXITCODE -ne 0) { throw "Packaging the app failed" }
 try {
     Invoke-Az webapp deploy --resource-group $ResourceGroup --name $AppName --src-path $zip --type zip -o none | Out-Null

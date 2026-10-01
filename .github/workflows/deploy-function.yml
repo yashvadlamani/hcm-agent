@@ -2,15 +2,13 @@ name: Deploy call-request function
 
 # Redeploys the call-request Azure Function whenever its code (or the hcm_agent package it
 # uses) changes. Needs the repository secret AZURE_FUNCTIONAPP_PUBLISH_PROFILE; see
-# docs/DEPLOY_AZURE.md. Without it, the deploy step is skipped.
+# docs/setup.md. Without it, the deploy step is skipped.
 
 on:
   push:
     branches: [main]
     paths:
-      - "functions/**"
-      - "src/hcm_agent/**"
-      - "deploy/azure/package_function.py"
+      - "hcm_agent/**"
       - ".github/workflows/deploy-function.yml"
   workflow_dispatch:
 
@@ -41,7 +39,7 @@ jobs:
 
       - name: Build the function package
         if: steps.secret.outputs.present == 'true'
-        run: python deploy/azure/package_function.py build/function
+        run: python hcm_agent/deploy/package.py function build/function
 
       - name: Deploy to Azure Functions
         if: steps.secret.outputs.present == 'true'

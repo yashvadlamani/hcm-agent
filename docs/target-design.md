@@ -1,5 +1,7 @@
 # HCM Voice Outreach Agent: System Design & Implementation Guide
 
+> **Future design.** This document describes the long-term product vision: ML-triggered outreach, retrieval-augmented answers, tool calling and full compliance. It is **not** what's built today. For the current system, see [Architecture](./architecture.md); for what's next, see the [Roadmap](./roadmap.md).
+
 **Last Updated:** September 19, 2026
 
 ---
