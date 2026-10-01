@@ -36,6 +36,14 @@ Patient statements are also scanned for emergency phrases. On a match the call s
 
 ## 2. How a phone call works
 
+### Current workflow
+
+![Current workflow](./images/current-workflow.svg)
+
+A call starts when a JSON request, like [`samples/john-doe.json`](./samples/john-doe.json), is uploaded to `call-requests/incoming/`. You can also start one from your laptop with `clara-call`. The sequence below shows what happens during the call itself.
+
+### During a call
+
 ```mermaid
 sequenceDiagram
     participant Dev as clara-call (your laptop)

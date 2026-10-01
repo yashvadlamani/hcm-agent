@@ -137,10 +137,10 @@ request.json ──upload──▶ storage container call-requests/incoming/
 
 ### Place a call
 
-Create `request.json`:
+Create `request.json`, or copy [`samples/john-doe.json`](./samples/john-doe.json), which uses all 5 risk drivers:
 
 ```json
-{ "to": "+1XXXXXXXXXX", "name": "Yash", "risk_drivers": ["missed refills", "high A1C"] }
+{ "to": "+1XXXXXXXXXX", "name": "John Doe", "risk_drivers": ["missed refills", "high A1C"] }
 ```
 
 | Field | Required | Rules |
