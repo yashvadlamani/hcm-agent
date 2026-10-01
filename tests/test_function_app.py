@@ -86,3 +86,43 @@ def test_result_is_filed_and_incoming_deleted():
     assert name.startswith("processed/") and name.endswith("-yash-test.json")
     assert record["result"] == {"call_sid": "CA1"} and record["request"]["to"] == "+15555550100"
     assert incoming.deleted_with == "lease-1"
+
+
+@pytest.mark.parametrize("path, expected", [
+    ("incoming/yash-test.json", True),
+    ("incoming/YASH.JSON", True),
+    ("incoming/README.txt", False),
+    ("incoming/nested/request.json", False),
+    ("processed/request.json", False),
+])
+def test_only_json_files_in_incoming_are_requests(path, expected):
+    assert function_app.is_call_request(path) is expected
+
+
+class PlaceholderContainer:
+    def __init__(self, exists=False, broken=False):
+        self.exists, self.broken, self.uploads = exists, broken, []
+
+    def upload_blob(self, name, data, overwrite):
+        if self.broken:
+            raise RuntimeError("storage unavailable")
+        if self.exists and not overwrite:
+            raise function_app.ResourceExistsError("exists")
+        self.uploads.append((name, data))
+
+
+def test_missing_placeholder_is_restored():
+    container = PlaceholderContainer()
+    function_app._ensure_placeholder(container)
+    [(name, data)] = container.uploads
+    assert name == "incoming/README.txt" and b"Upload call requests" in data
+
+
+def test_existing_placeholder_is_left_alone():
+    container = PlaceholderContainer(exists=True)
+    function_app._ensure_placeholder(container)
+    assert container.uploads == []
+
+
+def test_placeholder_problems_never_fail_the_request():
+    function_app._ensure_placeholder(PlaceholderContainer(broken=True))  # must not raise

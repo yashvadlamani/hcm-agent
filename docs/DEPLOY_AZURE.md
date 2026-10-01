@@ -164,6 +164,8 @@ The function places a call only when all of these hold:
 
 Each file is handled once, even if Azure delivers the event twice.
 
+`incoming/` always contains a `README.txt` with these instructions. It keeps the folder visible between uploads, because blob storage only shows a folder while it holds a file. It never triggers a call, and the function puts it back if it's deleted.
+
 ## Automatic deploys from GitHub
 
 Two GitHub Actions workflows redeploy code when it changes on `main`:

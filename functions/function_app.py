@@ -8,12 +8,16 @@ Upload to the `call-requests` container under `incoming/`, for example
 Each file places at most one call. The file is then moved to `processed/` (with the
 Twilio call SID) or `failed/` (with the reason). Only numbers in ALLOWED_CALL_NUMBERS
 are called, and at most MAX_CALLS_PER_HOUR calls are placed per hour.
+
+`incoming/README.txt` keeps the folder visible between uploads (blob storage has no real
+folders). It's never processed, and is put back if it goes missing.
 """
 
 import datetime
 import json
 import logging
 import os
+from pathlib import Path
 
 import azure.functions as func
 from azure.core.exceptions import HttpResponseError, ResourceExistsError, ResourceNotFoundError
@@ -28,6 +32,8 @@ app = func.FunctionApp()
 CONTAINER = "call-requests"
 STORAGE_SETTING = "CallRequestsStorage"
 LEASE_SECONDS = 60
+PLACEHOLDER = "incoming/README.txt"
+PLACEHOLDER_SOURCE = Path(__file__).with_name("incoming_README.txt")
 logger = logging.getLogger("clara.call_requests")
 
 
@@ -35,6 +41,9 @@ logger = logging.getLogger("clara.call_requests")
                   source=func.BlobSource.EVENT_GRID)
 def call_request(blob: func.InputStream) -> None:
     blob_path = blob.name.split("/", 1)[1]  # "incoming/<file>" (blob.name includes the container)
+    if not is_call_request(blob_path):
+        logger.info("Ignoring %s: not a call request", blob_path)
+        return
     container = BlobServiceClient.from_connection_string(os.environ[STORAGE_SETTING]).get_container_client(CONTAINER)
     incoming = container.get_blob_client(blob_path)
 
@@ -52,6 +61,23 @@ def call_request(blob: func.InputStream) -> None:
         logger.exception("Unexpected error for %s", blob_path)
         outcome, result = "failed", {"error": f"unexpected error: {type(e).__name__}"}
     _file_result(container, incoming, lease, raw, outcome, result)
+    _ensure_placeholder(container)
+
+
+def is_call_request(blob_path: str) -> bool:
+    """Only .json files directly in incoming/ are requests (not the README, not subfolders)."""
+    name = blob_path.removeprefix("incoming/")
+    return blob_path.startswith("incoming/") and "/" not in name and name.lower().endswith(".json")
+
+
+def _ensure_placeholder(container: ContainerClient) -> None:
+    """Keep incoming/ visible: put the README back if it's missing. Never fails the request."""
+    try:
+        container.upload_blob(PLACEHOLDER, PLACEHOLDER_SOURCE.read_bytes(), overwrite=False)
+    except ResourceExistsError:
+        pass
+    except Exception:
+        logger.warning("Couldn't restore %s", PLACEHOLDER, exc_info=True)
 
 
 def _handle(raw: bytes, container: ContainerClient) -> tuple[str, dict]:
