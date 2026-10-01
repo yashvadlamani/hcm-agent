@@ -23,6 +23,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from .. import config
 from ..agent import HCMVoiceAgent
 from . import live_feed
+from .outbound import decode_call_context
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -110,8 +111,11 @@ def clara_says(call_sid: str, text: str, **extra) -> str:
 def voice(key):
     authorize(key)
     call_sid = request.form["CallSid"]
-    name = request.args.get("name", "there")
-    drivers = [d.strip() for d in request.args.get("drivers", "").split(",") if d.strip()]
+    if "ctx" in request.args:
+        name, drivers = decode_call_context(request.args["ctx"])
+    else:  # older links: plain name/drivers parameters
+        name = request.args.get("name", "there")
+        drivers = [d.strip() for d in request.args.get("drivers", "").split(",") if d.strip()]
 
     greeting = (
         f"Hi {name}, this is Clara, a virtual assistant from your health insurance care team. "

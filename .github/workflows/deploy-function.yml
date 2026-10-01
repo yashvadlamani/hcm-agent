@@ -6,7 +6,7 @@ name: Deploy call-request function
 
 on:
   push:
-    branches: [main, moving-resources-to-azure]
+    branches: [main]
     paths:
       - "functions/**"
       - "src/hcm_agent/**"

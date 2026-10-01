@@ -60,11 +60,28 @@ powershell -ExecutionPolicy Bypass -File .\deploy\azure\deploy.ps1 -AppName clar
 
 The script:
 1. creates the resource group, plan and web app
-2. copies the settings Clara needs from your `.env` into Azure (the values are never printed)
+2. stores the secrets from your `.env` in an Azure Key Vault, and the other settings in the app (the values are never printed)
 3. sets the startup command, Always On and HTTPS-only
 4. uploads the code
 
 Expect 5–10 minutes the first time. Re-run the same command whenever you change code or `.env` settings.
+
+### Where the secrets live
+
+On your laptop, Clara reads everything from `.env`, as before. In Azure, the secrets live in one Key Vault, named `clara-kv-<id>`, which the script creates in `clara-rg`:
+
+| Secret setting | Key Vault secret |
+|---|---|
+| `ANTHROPIC_API_KEY`, `AZURE_OPENAI_API_KEY` | `ANTHROPIC-API-KEY`, `AZURE-OPENAI-API-KEY` |
+| `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | `TWILIO-ACCOUNT-SID`, `TWILIO-AUTH-TOKEN` |
+| `PHONE_WEBHOOK_KEY`, `LIVE_VIEW_PASSWORD` | `PHONE-WEBHOOK-KEY`, `LIVE-VIEW-PASSWORD` |
+| `CallRequestsStorage` (Function only) | `CallRequestsStorage` |
+
+The web app and the Function app each have their own Azure identity (a managed identity) with read-only access to the vault. Their settings hold references like `@Microsoft.KeyVault(VaultName=…;SecretName=TWILIO-AUTH-TOKEN)` rather than the values. Non-secret settings, such as the phone number and the model endpoint, stay as plain app settings.
+
+**Changing a key:** update it in `.env` and re-run the deploy script, or `deploy_function.ps1` for the Function's settings. The script saves the new value as a new version of the secret and makes the app reload it right away.
+
+To check that the app can read every secret, open **Web app → Settings → Environment variables** in the portal. Each secret should show a green *Key vault reference* tick.
 
 Optional arguments: `-Sku B1` (default `F1`), `-Location westus2` (default `eastus`) and `-ResourceGroup <name>` (default `clara-rg`). If you change `-Location`, also use a new `-ResourceGroup` name, because a resource group can't move regions.
 
@@ -130,7 +147,13 @@ Create `request.json`:
 { "to": "+1XXXXXXXXXX", "name": "Yash", "risk_drivers": ["missed refills", "high A1C"] }
 ```
 
-Only `to` is required. Upload it to `incoming/`, either in the Azure portal (**Storage account → Containers → call-requests**) or with:
+| Field | Required | Rules |
+|---|---|---|
+| `to` | Yes | Phone number with at least 10 digits, e.g. `"+17044305315"` or `"704-430-5315"`. Must be in `ALLOWED_CALL_NUMBERS` |
+| `name` | No | Up to 60 characters; Clara greets with "Hi there" without it |
+| `risk_drivers` | No | List of up to 5 strings, each at most 100 characters. Shapes what Clara asks about |
+
+Upload it to `incoming/`, either in the Azure portal (**Storage account → Containers → call-requests**) or with:
 
 ```powershell
 az storage blob upload --account-name <storage-account> --auth-mode key -c call-requests -n incoming/request.json -f request.json
@@ -223,6 +246,7 @@ You'll see the same output a local terminal shows: each patient turn, Clara's re
 | `az` is not recognized | Reopen PowerShell after installing the Azure CLI |
 | Running the script is blocked by execution policy | Use the `powershell -ExecutionPolicy Bypass -File …` form shown above |
 | `/` shows an Azure "Application Error" page | Check the logs (above). Usually a missing setting: re-run the deploy script after fixing `.env` |
+| A setting shows a red *Key vault reference* error in the portal | The app's identity can't read the vault yet (new access can take a few minutes). Re-run the deploy script |
 | `/live` keeps asking for a password | Use the exact `LIVE_VIEW_PASSWORD` from the `.env` you deployed with |
 | Call says *"We could not reach your TwiML server"* | Make sure the app is on (`start.ps1`), `/` loads, and `--url` matches your Azure address |
 | An uploaded request stays in `incoming/` | Check the function's logs: **Function app → call_request → Invocations**. Re-run `deploy_function.ps1` to recreate the trigger |
@@ -230,7 +254,7 @@ You'll see the same output a local terminal shows: each patient turn, Clara's re
 
 ## Removing everything
 
-This deletes the app, the plan, the function, the storage account and the resource group permanently:
+This deletes the app, the plan, the function, the storage account, the Key Vault and the resource group permanently. The vault stays recoverable for 7 days, and its name can't be reused until then:
 
 ```powershell
 az group delete --name clara-rg
@@ -238,7 +262,7 @@ az group delete --name clara-rg
 
 ## Security notes for this setup
 
-- Your keys are stored as App Service and Function app settings, encrypted by Azure. `.env` stays on your laptop and isn't uploaded.
+- Your keys are stored in Azure Key Vault. The apps read them with their own identities and have read-only access. `.env` stays on your laptop and isn't uploaded.
 - The live view uses a single shared password over HTTPS. That's fine for a demo. For real use, replace it with company sign-in (Microsoft Entra ID).
 - The call-requests container is private. Anyone who can write to it can make Clara call the numbers in `ALLOWED_CALL_NUMBERS`, so keep that list short.
 - Twilio requests are checked using the secret key in the webhook address and your Account SID. On a paid Twilio account, make signature checking mandatory as well.

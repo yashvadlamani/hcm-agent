@@ -155,6 +155,15 @@ def test_live_view_requires_password_when_configured(client, monkeypatch):
     assert client.get("/live", headers={**proxied, **basic_auth("correct-horse")}).status_code == 200
 
 
+def test_greeting_reads_encoded_call_context(client):
+    from hcm_agent.telephony.outbound import encode_call_context
+    drivers = ["HbA1c above 7.5% at last check", "Missed refills, twice"]
+    status, body = post(client, f"voice?ctx={encode_call_context('Yash', drivers)}")
+    assert status == 200 and "Hi Yash, this is Clara" in body
+    started = next(e for e in live_feed.history() if e["type"] == "call_started")
+    assert started["drivers"] == drivers
+
+
 def test_live_feed_records_a_conversation(client):
     post(client, "voice?name=Yash")
     post(client, "respond", SpeechResult="I'm feeling stressed.", Confidence="0.42")

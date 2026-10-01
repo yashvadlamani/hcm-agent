@@ -6,6 +6,8 @@ Creates (or updates) in the resource group:
   - a storage account with the private `call-requests` container
   - a Flex Consumption Function App (Python 3.12) running functions/function_app.py
   - an Event Grid subscription that triggers the function for each new incoming/*.json
+Secrets (Twilio, webhook key, storage connection) go to the Key Vault shared with the Clara
+server; the Function app reads them through Key Vault references.
 
 Safe to re-run: use it again to push code or .env setting changes. GitHub Actions
 (.github/workflows/deploy-function.yml) can also redeploy the code on every push.
@@ -19,6 +21,7 @@ param(
     [string]$ResourceGroup = "clara-rg",
     [string]$Location = "centralus",
     [string]$StorageAccount = "",
+    [string]$Vault = "",
     [string]$PublishProfilePath = ""
 )
 $ErrorActionPreference = "Stop"
@@ -26,36 +29,9 @@ $root = (Resolve-Path "$PSScriptRoot\..\..").Path
 $container = "call-requests"
 $functionName = "call_request"
 
-# Call the Azure CLI's Python directly: az.cmd goes through cmd.exe, which breaks on the '&'
-# in the Event Grid webhook URL.
-$azPython = Join-Path (Split-Path (Get-Command az).Source) "..\python.exe"
-function Invoke-Az {
-    for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $out = & $azPython -IBm azure.cli @args --only-show-errors
-        if ($LASTEXITCODE -eq 0) { return $out }
-        if ($attempt -lt 3) { Write-Host "  retrying in 15s..."; Start-Sleep -Seconds 15 }
-    }
-    # Only the command name goes in the error, never the arguments (they can contain secrets).
-    throw "Azure CLI step failed: az $($args[0]) $($args[1]) $($args[2])"
-}
-# For lookups that may legitimately fail (resource not created yet): returns the output, or
-# nothing on error. PowerShell 5.1 would otherwise turn the CLI's stderr into a fatal error.
-function Get-AzOptional {
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        $out = & $azPython -IBm azure.cli @args --only-show-errors 2>$null
-        if ($LASTEXITCODE -eq 0) { return $out }
-    } catch {
-    } finally {
-        $ErrorActionPreference = $previous
-    }
-}
+. "$PSScriptRoot\common.ps1"
 
-$settings = @{}
-foreach ($line in Get-Content (Join-Path $root ".env")) {
-    if ($line -match '^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$') { $settings[$Matches[1]] = $Matches[2].Trim().Trim('"') }
-}
+$settings = Read-DotEnv (Join-Path $root ".env")
 $required = "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER", "PHONE_WEBHOOK_KEY", "ALLOWED_CALL_NUMBERS"
 $missing = @($required | Where-Object { -not $settings[$_] })
 if ($missing.Count -gt 0) { throw "Set these in .env before deploying: $($missing -join ', ')" }
@@ -65,6 +41,7 @@ if (-not $StorageAccount) {
     $subId = (Invoke-Az account show --query id -o tsv).Trim()
     $StorageAccount = "clarahcm" + ($subId -replace '-', '').Substring(0, 12)
 }
+if (-not $Vault) { $Vault = Get-DefaultVaultName }
 $claraUrl = "https://$ClaraAppName.azurewebsites.net"
 
 Write-Host "1/7 Storage account '$StorageAccount' and container '$container'"
@@ -80,21 +57,18 @@ if (-not $exists) {
         --flexconsumption-location $Location --runtime python --runtime-version 3.12 -o none | Out-Null
 }
 
-Write-Host "3/7 App settings (not printed)"
-$appSettings = @(
-    @{ name = "CallRequestsStorage"; value = $connection; slotSetting = $false },
-    @{ name = "CLARA_BASE_URL"; value = $claraUrl; slotSetting = $false }
-)
+Write-Host "3/7 Secrets to Key Vault '$Vault', other settings to the app (values not printed)"
+$vaultId = Initialize-Vault $Vault $ResourceGroup
+Grant-AppVaultAccess functionapp $ResourceGroup $FunctionApp $vaultId
+$secrets = @{ CallRequestsStorage = $connection }
+$appSettings = @(@{ name = "CLARA_BASE_URL"; value = $claraUrl; slotSetting = $false })
 foreach ($name in $required + "MAX_CALLS_PER_HOUR") {
-    if ($settings[$name]) { $appSettings += @{ name = $name; value = $settings[$name]; slotSetting = $false } }
+    if (-not $settings[$name]) { continue }
+    if ($SecretSettings -contains $name) { $secrets[$name] = $settings[$name] }
+    else { $appSettings += @{ name = $name; value = $settings[$name]; slotSetting = $false } }
 }
-$settingsFile = Join-Path $env:TEMP "clara-fn-settings-$([guid]::NewGuid()).json"
-try {
-    ConvertTo-Json -InputObject $appSettings | Set-Content -Path $settingsFile -Encoding ascii
-    Invoke-Az functionapp config appsettings set -g $ResourceGroup -n $FunctionApp --settings "@$settingsFile" -o none | Out-Null
-} finally {
-    Remove-Item $settingsFile -ErrorAction SilentlyContinue
-}
+$appSettings += Sync-VaultSecrets $Vault $secrets
+Write-AppSettings functionapp $ResourceGroup $FunctionApp $appSettings
 
 Write-Host "4/7 Uploading code (Azure installs the requirements; this takes a few minutes)"
 $zip = Join-Path $env:TEMP "clara-function.zip"

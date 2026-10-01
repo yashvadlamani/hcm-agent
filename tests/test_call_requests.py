@@ -28,6 +28,7 @@ def test_full_request_and_bom_tolerance():
     raw({"to": "+17044305315", "name": ""}),
     raw({"to": "+17044305315", "risk_drivers": "HbA1c"}),
     raw({"to": "+17044305315", "risk_drivers": ["a", "b", "c", "d", "e", "f"]}),
+    raw({"to": "+17044305315", "risk_drivers": ["x" * 101]}),
     b"x" * 20_000,
 ])
 def test_invalid_requests_are_rejected(body):

@@ -1,5 +1,7 @@
 """Placing outbound calls through Twilio, shared by clara-call and the call-request Azure Function."""
 
+import base64
+import json
 import time
 import urllib.error
 import urllib.request
@@ -11,10 +13,35 @@ from twilio.rest import Client
 from ..config import Settings
 
 WAKE_TIMEOUT_SECONDS = 120
+MAX_RISK_DRIVERS = 5
+MAX_DRIVER_CHARS = 100
 
 
 class CallNotAllowed(ValueError):
     """The number isn't on ALLOWED_CALL_NUMBERS."""
+
+
+def encode_call_context(name: str, risk_drivers: Sequence[str] = ()) -> str:
+    """Pack the patient's name and risk drivers into one URL-safe value (letters, digits, '-' and '_').
+
+    Free text such as "HbA1c above 7.5%" breaks calls when passed as ordinary query parameters
+    through Twilio, so it travels as base64url-encoded JSON instead."""
+    context = {"name": name, "drivers": [d[:MAX_DRIVER_CHARS] for d in risk_drivers][:MAX_RISK_DRIVERS]}
+    return base64.urlsafe_b64encode(json.dumps(context, separators=(",", ":")).encode()).decode().rstrip("=")
+
+
+def decode_call_context(value: str) -> tuple[str, list[str]]:
+    """Inverse of encode_call_context. Returns ("there", []) for anything malformed."""
+    try:
+        context = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
+        name = context.get("name")
+        drivers = context.get("drivers", [])
+        if not isinstance(name, str) or not isinstance(drivers, list):
+            raise ValueError
+    except (ValueError, TypeError, AttributeError):
+        return "there", []
+    drivers = [d.strip()[:MAX_DRIVER_CHARS] for d in drivers if isinstance(d, str) and d.strip()]
+    return (name.strip()[:60] or "there"), drivers[:MAX_RISK_DRIVERS]
 
 
 def to_e164(phone: str) -> str:
@@ -63,10 +90,8 @@ def place_call(settings: Settings, base_url: str, to: str, name: str = "there",
     if wake:
         wake_server(base_url, on_wait=on_wait)
 
-    query = {"name": name}
-    if risk_drivers:
-        query["drivers"] = ",".join(risk_drivers)
-    webhook = f"{base_url}/t/{settings.phone_webhook_key}/voice?{urlencode(query)}"
+    context = encode_call_context(name, risk_drivers or [])
+    webhook = f"{base_url}/t/{settings.phone_webhook_key}/voice?{urlencode({'ctx': context})}"
 
     client = client or Client(settings.twilio_account_sid, settings.twilio_auth_token)
     # Trial accounts reject any call parameters beyond to/from/url.

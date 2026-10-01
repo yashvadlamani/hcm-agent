@@ -2,11 +2,13 @@
 
     {"to": "+15551234567", "name": "Yash", "risk_drivers": ["HbA1c above 7.5%"]}
 
-Only "to" is required.
+Only "to" is required. Up to 5 risk drivers, each at most 100 characters.
 """
 
 import json
 from dataclasses import dataclass, field
+
+from .outbound import MAX_DRIVER_CHARS, MAX_RISK_DRIVERS
 
 MAX_REQUEST_BYTES = 10_000
 
@@ -41,7 +43,10 @@ def parse_call_request(raw: bytes) -> CallRequest:
         raise InvalidCallRequest('"name" must be a short non-empty string')
 
     drivers = data.get("risk_drivers", [])
-    if not isinstance(drivers, list) or not all(isinstance(d, str) for d in drivers) or len(drivers) > 5:
-        raise InvalidCallRequest('"risk_drivers" must be a list of up to 5 strings')
+    if (not isinstance(drivers, list) or len(drivers) > MAX_RISK_DRIVERS
+            or not all(isinstance(d, str) and len(d) <= MAX_DRIVER_CHARS for d in drivers)):
+        raise InvalidCallRequest(
+            f'"risk_drivers" must be a list of up to {MAX_RISK_DRIVERS} strings, '
+            f'each at most {MAX_DRIVER_CHARS} characters')
 
     return CallRequest(to=to, name=name.strip(), risk_drivers=[d.strip() for d in drivers if d.strip()])
