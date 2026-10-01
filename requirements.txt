@@ -1,7 +1,6 @@
 anthropic
+openai
 python-dotenv
 twilio
 flask
-
-# Testing
-pytest
+gunicorn

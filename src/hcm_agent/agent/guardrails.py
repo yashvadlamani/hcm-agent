@@ -19,7 +19,8 @@ class VoiceAgentGuardrails:
 
     # Medical diagnosis patterns
     DIAGNOSIS_PATTERNS = [
-        r"\byou (have|suffer from|are diagnosed with|might have|may have) (a |an )?(\w+ ){0,2}(disease|disorder|condition|syndrome|diabetes|neuropathy|hypertension|depression|infection|retinopathy)\b",
+        r"\byou (have|suffer from|are diagnosed with|might have|may have) (a |an )?(\w+ ){0,2}"
+        r"(disease|disorder|condition|syndrome|diabetes|neuropathy|hypertension|depression|infection|retinopathy)\b",
         r"(this is|that's|looks like|sounds like) (\w+ ){0,3}(disease|disorder|condition|syndrome)",
         r"you (are|seem to be) (diabetic|prediabetic|hypertensive|depressed)",
         r"based on your symptoms?, (you )?have",

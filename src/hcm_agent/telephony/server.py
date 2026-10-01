@@ -10,30 +10,37 @@ to Twilio's HIPAA-eligible offering with a signed BAA.
 
 import hmac
 import logging
-import os
 import re
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, wait
+from pathlib import Path
 
-from dotenv import load_dotenv
-from flask import Flask, Response, abort, request
+from flask import Flask, Response, abort, request, send_from_directory
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Gather, VoiceResponse
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .agent import HCMVoiceAgent
+from .. import config
+from ..agent import HCMVoiceAgent
+from . import live_feed
+from .outbound import decode_call_context
 
-load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
-# ngrok terminates HTTPS; trust its forwarded headers so request.url matches the URL Twilio signed.
+STATIC_DIR = Path(__file__).parent / "static"
+app = Flask(__name__, static_folder=None)
+# Azure App Service terminates HTTPS; trust its forwarded headers so request.url matches the URL Twilio signed.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN", ""))
-ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-WEBHOOK_KEY = os.getenv("PHONE_WEBHOOK_KEY", "")
+settings = config.load()
+validator = RequestValidator(settings.twilio_auth_token)
+ACCOUNT_SID = settings.twilio_account_sid
+WEBHOOK_KEY = settings.phone_webhook_key
+# When set (e.g. on Azure), /live asks for this password; when unset, /live is local-only.
+LIVE_VIEW_PASSWORD = settings.live_view_password
+for problem in config.server_problems(settings):
+    logger.warning("Configuration problem: %s", problem)
 calls: dict[str, HCMVoiceAgent] = {}
 pending: dict[str, tuple[Future, str, float]] = {}
 executor = ThreadPoolExecutor(max_workers=4)
@@ -86,20 +93,29 @@ def say_and_hang_up(*lines: str) -> Response:
     return twiml(response)
 
 
-def end_call(call_sid: str) -> None:
+def end_call(call_sid: str, reason: str) -> None:
     pending.pop(call_sid, None)
     agent = calls.pop(call_sid, None)
     if agent:
         agent.end_call()
+        live_feed.publish(call_sid, "call_ended", reason=reason)
         logger.info("Transcript for %s:%s", call_sid, agent.get_conversation_transcript())
+
+
+def clara_says(call_sid: str, text: str, **extra) -> str:
+    live_feed.publish(call_sid, "clara", text=text, **extra)
+    return text
 
 
 @app.post("/t/<key>/voice")
 def voice(key):
     authorize(key)
     call_sid = request.form["CallSid"]
-    name = request.args.get("name", "there")
-    drivers = [d.strip() for d in request.args.get("drivers", "").split(",") if d.strip()]
+    if "ctx" in request.args:
+        name, drivers = decode_call_context(request.args["ctx"])
+    else:  # older links: plain name/drivers parameters
+        name = request.args.get("name", "there")
+        drivers = [d.strip() for d in request.args.get("drivers", "").split(",") if d.strip()]
 
     greeting = (
         f"Hi {name}, this is Clara, a virtual assistant from your health insurance care team. "
@@ -115,7 +131,9 @@ def voice(key):
     ]
     calls[call_sid] = agent
     logger.info("Call %s connected for %s", call_sid, name)
-    return say_and_listen(key, greeting)
+    live_feed.publish(call_sid, "call_started", name=name,
+                      drivers=agent.patient_context.get("risk_drivers", []))
+    return say_and_listen(key, clara_says(call_sid, greeting, kind="greeting"))
 
 
 @app.post("/t/<key>/respond")
@@ -129,18 +147,27 @@ def respond(key):
     said = request.form.get("SpeechResult", "").strip()
     logger.info("Patient: %s", said)
     if not said:
-        return say_and_listen(key, "Sorry, I didn't catch that. Could you say it again?")
+        return say_and_listen(key, clara_says(
+            call_sid, "Sorry, I didn't catch that. Could you say it again?", kind="system"))
+
+    confidence = request.form.get("Confidence")
+    live_feed.publish(call_sid, "patient", text=said,
+                      confidence=float(confidence) if confidence else None)
 
     # Emergencies get a fixed, immediate response instead of waiting on the model.
     is_emergency, reason = agent.process_patient_input(said)
     if is_emergency:
-        end_call(call_sid)
-        return say_and_hang_up(
+        live_feed.publish(call_sid, "emergency", reason=reason)
+        lines = (
             "I'm really sorry you're going through this, and I want you to get help right away.",
             "If this is a medical emergency, please hang up and call 9 1 1 now. "
             "I'm also flagging this call for your care manager. Goodbye.",
         )
+        clara_says(call_sid, " ".join(lines), kind="emergency")
+        end_call(call_sid, reason="Emergency detected")
+        return say_and_hang_up(*lines)
 
+    live_feed.publish(call_sid, "thinking")
     pending[call_sid] = (executor.submit(agent.generate_response, said), said, time.monotonic())
     return reply_or_wait(key, call_sid)
 
@@ -165,15 +192,22 @@ def reply_or_wait(key: str, call_sid: str) -> Response:
     if not future.done():
         if time.monotonic() - started > MAX_REPLY_WAIT_SECONDS:
             pending.pop(call_sid, None)
-            return say_and_listen(key, "Sorry, I'm having trouble on my end. Could you say that again?")
+            return say_and_listen(key, clara_says(
+                call_sid, "Sorry, I'm having trouble on my end. Could you say that again?", kind="system"))
         return wait_for_reply(key)
 
     pending.pop(call_sid, None)
     text = future.result()
-    logger.info("Clara (%.1fs): %s", time.monotonic() - started, text)
+    latency = time.monotonic() - started
+    logger.info("Clara (%.1fs): %s", latency, text)
+
+    blocked = getattr(calls[call_sid], "last_blocked_reply", None)
+    if blocked:
+        live_feed.publish(call_sid, "guardrail", rule=blocked["rule"], blocked_text=blocked["text"])
+    clara_says(call_sid, text, kind="reply", latency=round(latency, 1))
 
     if GOODBYE.search(said):
-        end_call(call_sid)
+        end_call(call_sid, reason="Patient said goodbye")
         return say_and_hang_up(text)
     return say_and_listen(key, text)
 
@@ -188,15 +222,55 @@ def wait_for_reply(key: str) -> Response:
 @app.post("/t/<key>/no-input")
 def no_input(key):
     authorize(key)
-    end_call(request.form.get("CallSid", ""))
-    return say_and_hang_up(
-        "I didn't hear anything, so I'll let you go. Your care team will follow up. Goodbye."
-    )
+    call_sid = request.form.get("CallSid", "")
+    text = "I didn't hear anything, so I'll let you go. Your care team will follow up. Goodbye."
+    if call_sid in calls:
+        clara_says(call_sid, text, kind="system")
+    end_call(call_sid, reason="No response from patient")
+    return say_and_hang_up(text)
+
+
+def protect_live_view() -> None:
+    if LIVE_VIEW_PASSWORD:
+        auth = request.authorization
+        if not auth or not hmac.compare_digest(auth.password or "", LIVE_VIEW_PASSWORD):
+            abort(Response("Sign in to view live calls.", 401,
+                           {"WWW-Authenticate": 'Basic realm="Clara live calls"'}))
+        return
+    # No password configured: allow only direct requests from this machine. Traffic that came
+    # through a proxy or load balancer (such as Azure's front end) carries X-Forwarded-For.
+    if request.headers.get("X-Forwarded-For") or request.remote_addr not in ("127.0.0.1", "::1"):
+        abort(404)
+
+
+@app.get("/")
+def status():
+    return Response("Clara phone server is running.", mimetype="text/plain")
+
+
+@app.get("/live")
+def live_page():
+    protect_live_view()
+    return send_from_directory(STATIC_DIR, "live.html")
+
+
+@app.get("/live/events")
+def live_events():
+    protect_live_view()
+    return Response(live_feed.stream(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache"})
+
+
+def main() -> None:
+    """Run the development server locally (`clara-server`). Azure runs `app` under gunicorn."""
+    try:
+        config.require(config.server_problems(settings))
+    except config.ConfigError as e:
+        raise SystemExit(str(e))
+    logger.info("Clara phone server listening on http://127.0.0.1:%s", settings.port)
+    logger.info("Live call view: http://127.0.0.1:%s/live", settings.port)
+    app.run(host="127.0.0.1", port=settings.port, threaded=True)
 
 
 if __name__ == "__main__":
-    if len(WEBHOOK_KEY) < 20 or not ACCOUNT_SID:
-        raise SystemExit("Set TWILIO_ACCOUNT_SID and a random PHONE_WEBHOOK_KEY (20+ chars) in .env")
-    port = int(os.getenv("FLASK_PORT", "5000"))
-    logger.info("Clara phone server listening on http://127.0.0.1:%s", port)
-    app.run(host="127.0.0.1", port=port)
+    main()

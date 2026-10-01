@@ -1,7 +1,6 @@
 """Mock voice interface for testing without real voice infrastructure."""
 
-import json
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class MockVoiceInterface:
@@ -14,7 +13,7 @@ class MockVoiceInterface:
         """Start a simulated voice call."""
         self.agent.initialize_call(patient_context)
         print("\n" + "="*70)
-        print(f"📞 VOICE CALL STARTED")
+        print("📞 VOICE CALL STARTED")
         print(f"Patient: {patient_context.get('name', 'Unknown')}")
         print(f"Risk Drivers: {', '.join(patient_context.get('risk_drivers', []))}")
         print("="*70 + "\n")
@@ -52,7 +51,8 @@ def run_interactive_call(agent):
     # Get patient info
     patient_name = input("Patient name: ").strip() or "John Smith"
     risk_drivers = input("Risk drivers (comma-separated): ").strip()
-    risk_drivers = [d.strip() for d in risk_drivers.split(",")] if risk_drivers else ["HbA1c > 7.5%", "Blood pressure elevated"]
+    risk_drivers = ([d.strip() for d in risk_drivers.split(",")] if risk_drivers
+                    else ["HbA1c > 7.5%", "Blood pressure elevated"])
 
     patient_context = {
         "name": patient_name,
