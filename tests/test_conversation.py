@@ -10,6 +10,8 @@ from hcm_agent.agent.conversation import (
     HCMVoiceAgent,
     parse_model_output,
 )
+from hcm_agent.agent.prompts import get_system_prompt
+from hcm_agent.call_reasons import CALL_REASONS, call_reason
 from test_config import VALID
 
 
@@ -385,3 +387,56 @@ def test_without_a_name_the_call_starts_with_the_check_in():
     agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
     agent.initialize_call({"name": "there"})
     assert agent.phase == "conversation" and "diabetes management" in agent.start_call()
+
+
+# ---- The reason for the call and personal replies ----
+
+def test_the_reason_for_the_call_shapes_what_the_patient_hears():
+    agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
+    agent.initialize_call({"name": "Maria Lopez", "call_reason": "likelihood of high cost"})
+    agent.start_call()
+    reply = agent.take_turn("Yes, this is Maria.").reply
+    assert reply.startswith("Thanks, Maria. I'm calling to check in on your health")
+    assert "cost" not in reply.lower() and "diabetes" not in reply.lower()  # the internal label is never spoken
+
+
+@pytest.mark.parametrize("label", sorted(CALL_REASONS))
+def test_known_reasons_never_say_their_internal_label(label):
+    reason = call_reason(label)
+    said = f"{reason.purpose} {reason.question}".lower()
+    assert not any(word in said for word in ("risk", "cost", "adherence", "readmission", "gap"))
+
+
+def test_an_unlisted_reason_gets_a_general_opening_and_still_reaches_the_model():
+    context = {"name": "Sam", "call_reason": "fall prevention"}
+    agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
+    agent.initialize_call(context)
+    agent.start_call()
+    assert "check in on how you're doing with your health" in agent.take_turn("Yes, this is Sam.").reply
+    assert "reason for this call: fall prevention." in get_system_prompt(context)
+
+
+def test_prompt_carries_the_reason_and_what_the_care_team_noticed():
+    prompt = get_system_prompt({"name": "Maria Lopez", "call_reason": "likelihood of high cost",
+                                "risk_drivers": ["3 ER visits in the last 6 months"]})
+    assert "reason for this call: likelihood of high cost." in prompt
+    assert "- 3 ER visits in the last 6 months" in prompt
+    assert "Call them Maria." in prompt and "MAKE IT PERSONAL" in prompt
+    assert "noticed about this patient" not in get_system_prompt({"name": "Maria"})
+
+
+def test_goodbye_uses_the_first_name():
+    agent, _ = new_agent(name="John Doe")
+    agent.take_turn("That's all, goodbye.")
+    assert "Thank you for your time today, John." in agent.take_turn("No thanks.").reply
+
+
+def test_curly_apostrophes_cannot_slip_a_promise_past_the_guardrails():
+    agent, _ = new_agent(turn_json("I\u2019ll make sure a nurse calls you today \u2014 don\u2019t worry."))
+    turn = agent.take_turn("Can someone call me?")
+    assert turn.blocked["rule"] == "promise" and "note it for your care team" in turn.reply
+
+
+def test_dashes_are_spoken_as_pauses():
+    agent, _ = new_agent(turn_json("Night shifts are hard \u2014 how do you fit refills in?"))
+    assert agent.take_turn("I work nights.").reply == "Night shifts are hard, how do you fit refills in?"

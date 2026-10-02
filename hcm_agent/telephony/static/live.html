@@ -167,12 +167,13 @@ function handle(event) {
   lastEventId = event.id;
   let call = calls.get(event.call);
   if (!call) {
-    call = { name: "Unknown caller", drivers: [], started: event.ts, ended: null, status: "live", events: [],
+    call = { name: "Unknown caller", drivers: [], reason: "", started: event.ts, ended: null, status: "live", events: [],
              sentiment: 0.5, trend: [0.5], change: 0, feedback: null, identity: null, spokeWith: null, callback: null };
     calls.set(event.call, call);
   }
   if (event.type === "call_started") {
-    call.name = event.name; call.drivers = event.drivers || []; call.started = event.ts;
+    call.name = event.name; call.drivers = event.drivers || []; call.reason = event.reason || "";
+    call.started = event.ts;
     call.sentiment = event.sentiment ?? 0.5; call.trend = [call.sentiment];
     if (!userPicked) selected = event.call;
   }
@@ -332,6 +333,7 @@ function updateMeta() {
   const end = call.ended || Date.now() / 1000;
   const turns = call.events.filter((e) => e.type === "patient").length;
   const parts = [`Started ${clock(call.started)}`, `Duration ${duration(end - call.started)}`, `${turns} patient turn${turns === 1 ? "" : "s"}`];
+  if (call.reason) parts.push(`Calling for: ${call.reason}`);
   if (call.drivers.length) parts.push(`Risk drivers: ${call.drivers.join(", ")}`);
   $("head-meta").textContent = parts.join(" · ");
 }

@@ -27,21 +27,22 @@
 
   <g transform="translate(0,60)">
     <!-- Sample request -->
-    <rect x="30" y="86" width="400" height="290" rx="10" fill="#FAFAF8" stroke="#B4B2A9" stroke-width="1"/>
+    <rect x="30" y="86" width="400" height="309" rx="10" fill="#FAFAF8" stroke="#B4B2A9" stroke-width="1"/>
     <text class="th" x="50" y="112" fill="#2C2C2A">Sample request</text>
     <text class="ts" x="50" y="131" fill="#5F5E5A">Upload to call-requests / incoming / john-doe.json</text>
     <line x1="50" y1="144" x2="410" y2="144" stroke="#D3D1C7" stroke-width="1"/>
     <text class="code" xml:space="preserve" x="50" y="166">{</text>
     <text class="code" xml:space="preserve" x="50" y="185">  <tspan class="key">"to"</tspan>: <tspan class="str">"1-XXX-XXX-XXXX"</tspan>,</text>
     <text class="code" xml:space="preserve" x="50" y="204">  <tspan class="key">"name"</tspan>: <tspan class="str">"John Doe"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="223">  <tspan class="key">"risk_drivers"</tspan>: [</text>
-    <text class="code" xml:space="preserve" x="50" y="242">    <tspan class="str">"HbA1c above 7.5% at last check"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="261">    <tspan class="str">"Missed metformin refills in the last 60 days"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="280">    <tspan class="str">"No endocrinologist visit in over 12 months"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="299">    <tspan class="str">"ER visit for low blood sugar in last 90 days"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="318">    <tspan class="str">"Overdue annual diabetic eye exam"</tspan></text>
-    <text class="code" xml:space="preserve" x="50" y="337">  ]</text>
-    <text class="code" xml:space="preserve" x="50" y="356">}</text>
+    <text class="code" xml:space="preserve" x="50" y="223">  <tspan class="key">"for"</tspan>: <tspan class="str">"diabetes management"</tspan>,</text>
+    <text class="code" xml:space="preserve" x="50" y="242">  <tspan class="key">"risk_drivers"</tspan>: [</text>
+    <text class="code" xml:space="preserve" x="50" y="261">    <tspan class="str">"HbA1c above 7.5% at last check"</tspan>,</text>
+    <text class="code" xml:space="preserve" x="50" y="280">    <tspan class="str">"Missed metformin refills in the last 60 days"</tspan>,</text>
+    <text class="code" xml:space="preserve" x="50" y="299">    <tspan class="str">"No endocrinologist visit in over 12 months"</tspan>,</text>
+    <text class="code" xml:space="preserve" x="50" y="318">    <tspan class="str">"ER visit for low blood sugar in last 90 days"</tspan>,</text>
+    <text class="code" xml:space="preserve" x="50" y="337">    <tspan class="str">"Overdue annual diabetic eye exam"</tspan></text>
+    <text class="code" xml:space="preserve" x="50" y="356">  ]</text>
+    <text class="code" xml:space="preserve" x="50" y="375">}</text>
 
     <!-- Azure boundary -->
     <rect x="650" y="30" width="436" height="536" rx="16" fill="none" stroke="#888780" stroke-width="1" stroke-dasharray="6 5"/>

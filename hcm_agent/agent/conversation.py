@@ -20,6 +20,7 @@ from difflib import SequenceMatcher
 from typing import Optional, Tuple
 
 from .. import config
+from ..call_reasons import call_reason
 from .guardrails import GuardrailViolation, VoiceAgentGuardrails
 from .llm import LLM, create_llm
 from .prompts import get_system_prompt
@@ -172,9 +173,12 @@ class HCMVoiceAgent:
         if self.phase == "verify":
             return (f"Hi, I'm Clara, a virtual assistant from your health insurance care team. "
                     f"May I speak with {name}, please?")
-        return ("Hi, this is Clara, a virtual assistant from your health insurance care team. "
-                "I'm calling to check in on how you're doing with your diabetes management. "
-                "How have you been feeling lately?")
+        return f"Hi, this is Clara, a virtual assistant from your health insurance care team. {self._why_calling()}"
+
+    def _why_calling(self) -> str:
+        """The reason for the call in words meant for the patient, then Clara's first question."""
+        reason = call_reason(self.patient_context.get("call_reason"))
+        return f"I'm calling to {reason.purpose}. {reason.question}"
 
     # ---- The turn ----
 
@@ -239,7 +243,7 @@ class HCMVoiceAgent:
             return self._emergency_turn(said, Emergency(result["emergency"]["kind"],
                                                         result["emergency"]["reason"], "ai"))
 
-        reply = self._apply_guardrails(result["reply"] or "Sorry, could you say that again?")
+        reply = self._apply_guardrails(spoken(result["reply"]) or "Sorry, could you say that again?")
         if result["state"] == "patient_done":
             closing = f"{reply} {FEEDBACK_QUESTION}" if reply else FEEDBACK_QUESTION
             self.conversation_history.append({"role": "assistant", "content": closing})
@@ -298,8 +302,8 @@ class HCMVoiceAgent:
     def _feedback_answer(self, said: str) -> Turn:
         wants_form = bool(YES.search(said)) and not NO.search(said)
         self.feedback_opt_in = wants_form
-        name = self.patient_context.get("name")
-        thanks = f"Thank you for your time today{', ' + name if name and name != 'there' else ''}. Take care. Goodbye."
+        name = self._patient_name()
+        thanks = f"Thank you for your time today{', ' + name.split()[0] if name else ''}. Take care. Goodbye."
         reply = (f"I've noted that you'd like the feedback form. {thanks}" if wants_form
                  else f"No problem. {thanks}")
         self._remember(said, reply)
@@ -341,8 +345,7 @@ class HCMVoiceAgent:
 
         if CONFIRMED.search(said) or (stated is not None and same_name(stated, first)):
             self.identity = "confirmed"
-            reply = (f"Thanks, {name.split()[0]}. I'm calling to check in on how you're doing with your diabetes "
-                     "management. How have you been feeling lately?")
+            reply = f"Thanks, {name.split()[0]}. {self._why_calling()}"
             self._remember(said, reply)
             self.phase = "conversation"
             return Turn(reply=reply, action="listen", sentiment=self.sentiment, identity="confirmed", phase=self.phase)
@@ -416,6 +419,13 @@ def same_name(heard: str, expected: str) -> bool:
     if heard == expected:
         return True
     return heard[:1] == expected[:1] and SequenceMatcher(None, heard, expected).ratio() >= 0.6
+
+
+def spoken(text: str) -> str:
+    """Tidy a model reply for the guardrails and text-to-speech: plain apostrophes (the guardrail
+    patterns match "I'll", not "I’ll") and commas in place of dashes."""
+    text = text.replace("\u2019", "'").replace("\u2018", "'").replace("\u201c", '"').replace("\u201d", '"')
+    return re.sub(r"\s*[\u2014\u2013]\s*", ", ", text).strip()
 
 
 def parse_model_output(raw: str) -> dict:

@@ -40,8 +40,8 @@ def placed(monkeypatch):
     calls = []
     monkeypatch.setattr(function_app.config, "load", lambda: VALID)
 
-    def fake_place_call(settings, base_url, to, name, drivers):
-        calls.append({"base_url": base_url, "to": to, "name": name, "drivers": drivers})
+    def fake_place_call(settings, base_url, to, name, drivers, reason):
+        calls.append({"base_url": base_url, "to": to, "name": name, "drivers": drivers, "reason": reason})
         return "call-fake-123"
 
     monkeypatch.setattr(function_app, "place_call", fake_place_call)
@@ -55,7 +55,13 @@ def request(**fields) -> bytes:
 def test_valid_request_places_one_call(placed):
     outcome, result = function_app._handle(request(), FakeContainer())
     assert (outcome, result) == ("processed", {"call_connection_id": "call-fake-123"})
-    assert placed == [{"base_url": VALID.clara_base_url, "to": "+15555550100", "name": "Yash", "drivers": []}]
+    assert placed == [{"base_url": VALID.clara_base_url, "to": "+15555550100", "name": "Yash", "drivers": [],
+                       "reason": "diabetes management"}]
+
+
+def test_the_reason_for_the_call_is_passed_on(placed):
+    function_app._handle(request(**{"for": "Likelihood of high cost"}), FakeContainer())
+    assert placed[0]["reason"] == "likelihood of high cost"
 
 
 def test_invalid_request_fails_without_calling(placed):
