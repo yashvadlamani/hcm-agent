@@ -53,6 +53,9 @@ Only the free trial number is limited to verified numbers. A purchased ACS numbe
 
 Notable changes, newest first.
 
+**2026-10-02: Sentiment measures satisfaction with the call**
+- The live score now tracks how satisfied the patient seems with the call at each moment. Calmly describing a hard situation is neutral; frustration with the call lowers it and feeling heard or helped raises it.
+
 **2026-10-02: Personal conversations and a reason for each call**
 - **Reason for the call:** a call request can say what the call is `for`, such as diabetes management, likelihood of high cost, medication adherence, readmission risk, care gaps or free text. It sets Clara's opening and what she explores. The care team's label is never said to the patient.
 - **Personal replies:** Clara now builds each reply on what the patient just said, remembers the call, raises the patient's risk drivers one at a time in everyday words, and avoids stock sympathy lines.

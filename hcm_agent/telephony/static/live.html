@@ -113,13 +113,13 @@
       <div class="meta" id="head-meta"></div>
       <div class="sentiment" id="sentiment">
         <div>
-          <div class="label">Patient sentiment</div>
+          <div class="label">Patient satisfaction with the call</div>
           <div class="score"><span id="sent-score">0.50</span><span class="mood-pill neutral" id="sent-label">Neutral</span></div>
           <div class="meter"><div class="mark" id="sent-mark" style="left: calc(50% - 1px)"></div></div>
-          <div class="scale"><span>0 negative</span><span>0.5</span><span>1 positive</span></div>
+          <div class="scale"><span>0 dissatisfied</span><span>0.5</span><span>1 satisfied</span></div>
           <div class="label" id="sent-hint" hidden>Updates after Clara's first reply</div>
         </div>
-        <svg class="trend" id="sent-trend" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Sentiment trend"></svg>
+        <svg class="trend" id="sent-trend" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Satisfaction trend"></svg>
       </div>
     </div>
     <div class="timeline" id="timeline">
@@ -155,7 +155,7 @@ const RULES = {
   promise: "a promise Clara can't keep",
 };
 const mood = (v) => v < 0.35 ? "negative" : v > 0.65 ? "positive" : "neutral";
-const MOOD_LABEL = { negative: "Negative", neutral: "Neutral", positive: "Positive" };
+const MOOD_LABEL = { negative: "Dissatisfied", neutral: "Neutral", positive: "Satisfied" };
 const arrow = (change) => change > 0 ? "▲" : change < 0 ? "▼" : "";
 
 function handle(event) {
@@ -179,8 +179,6 @@ function handle(event) {
   }
   if (event.type === "sentiment") {
     call.sentiment = event.value; call.change = event.change; call.trend.push(event.value);
-    const lastPatient = [...call.events].reverse().find((e) => e.type === "patient");
-    if (lastPatient) lastPatient.mood = { value: event.value, change: event.change };
   }
   if (event.type === "feedback") call.feedback = event.requested;
   if (event.type === "identity") { call.identity = event.status; call.spokeWith = event.spoke_with; }
@@ -204,7 +202,7 @@ function renderList() {
     const row = el("div", "row");
     row.append(el("span", "name", call.name));
     row.append(el("span", `pill ${call.status}`, call.status === "live" ? "Live" : call.status === "emergency" ? "Emergency" : "Ended"));
-    const sub = el("div", "sub", `${clock(call.started)} · mood ${call.sentiment.toFixed(2)} `);
+    const sub = el("div", "sub", `${clock(call.started)} · satisfaction ${call.sentiment.toFixed(2)} `);
     if (call.change) sub.append(el("span", call.change > 0 ? "up" : "down", arrow(call.change)));
     item.append(row, sub);
     item.onclick = () => { selected = sid; userPicked = true; renderList(); renderCall(); };
@@ -257,12 +255,6 @@ function renderCall() {
         const pct = Math.round(e.confidence * 100);
         msg.append(el("div", "tag" + (pct < 60 ? " low" : ""),
           pct < 60 ? `Low speech confidence (${pct}%), may be misheard` : `Speech confidence ${pct}%`));
-      }
-      if (e.mood) {
-        const chip = el("div", "tag", `Mood ${e.mood.value.toFixed(2)} `);
-        if (e.mood.change) chip.append(el("span", e.mood.change > 0 ? "up" : "down",
-          `${arrow(e.mood.change)} ${Math.abs(e.mood.change).toFixed(2)}`));
-        msg.append(chip);
       }
       timeline.append(msg);
     } else if (e.type === "thinking") {
