@@ -58,7 +58,7 @@ sequenceDiagram
    The callback time and who answered appear on the dashboard. Clara doesn't promise a callback: scheduled callbacks are on the [roadmap](./roadmap.md).
 3. **Each turn.** ACS transcribes the patient and sends `RecognizeCompleted`. The agent ([`conversation.py`](../hcm_agent/agent/conversation.py)):
    1. runs an **instant keyword check** for emergencies, such as "chest pain" or "want to die". On a match it skips the model entirely.
-   2. makes **one model request** that returns structured JSON: Clara's reply, a **clinical emergency assessment**, the patient's **sentiment** (0–1), and the **conversation state**.
+   2. makes **one model request** that returns structured JSON: Clara's reply, a **clinical emergency assessment**, the patient's **sentiment** (0–1: how satisfied they seem with the call at that moment), and the **conversation state**.
    3. runs the reply through the **guardrails**, replacing diagnoses, medical advice, medication changes and **promises** with honest, safe wording.
    4. asks ACS to speak and listen again.
 4. **End.** A call ends in one of these ways:
@@ -91,7 +91,7 @@ Every blocked reply and emergency appears on the live dashboard, including which
 
 The `/live` page shows each call as it happens:
 - **Turns:** what the patient said (with speech-recognition confidence) and Clara's replies, with timings.
-- **Sentiment:** starts at 0.50 (neutral) and updates every turn. It shows a score, a label (Negative below 0.35, Positive above 0.65), a trend line, and the change under each patient message. Each reading is smoothed (60% new, 40% previous) so one remark doesn't swing it.
+- **Sentiment:** how satisfied the patient seems with the call at that moment, not how hard their situation is. It starts at 0.50 (neutral) and updates every turn. It shows a score, a label (Dissatisfied below 0.35, Satisfied above 0.65), and a trend line, all in the panel at the top of the call. Each reading is smoothed (60% new, 40% previous) so one remark doesn't swing it.
 - **Guardrails and emergencies:** blocked replies, and emergencies with the reason and which layer caught them.
 - **Endings:** how each call ended, and whether the patient asked for the feedback form.
 - **Who answered:** whether the patient confirmed their identity, or who answered instead and the good time to call back.

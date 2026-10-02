@@ -7,7 +7,8 @@ def get_system_prompt(patient_context: dict = None) -> str:
     """Build Clara's system prompt for one call.
 
     The model answers every turn with a JSON object (see RESPONSE FORMAT) so one request gives
-    Clara's reply plus an emergency assessment, the patient's sentiment and the conversation state.
+    Clara's reply plus an emergency assessment, the patient's satisfaction with the call (sentiment)
+    and the conversation state.
     """
     patient_context = patient_context or {}
     patient_name = (patient_context.get("name") or "").strip()
@@ -132,7 +133,14 @@ Respond with only a JSON object, with no other text:
 }}
 - emergency.type is "none", "medical" or "mental_health"; reason is a short phrase such as
   "confusion and sweating suggest severe low blood sugar".
-- sentiment is the patient's overall mood in the conversation so far, from 0.0 (very negative,
-  distressed) through 0.5 (neutral) to 1.0 (very positive).
+- sentiment is how satisfied the patient seems with this call right now, judged from their latest message
+  and how they are responding to you. It is about the call, not about their life or health:
+  0.0 to 0.3: dissatisfied. Annoyed, impatient or suspicious, feels unheard or brushed off, pushes back,
+  complains about the call or the health plan, gives curt answers to get rid of you, wants to end the call.
+  around 0.5: neutral. Answers plainly with no sign either way. A patient calmly describing a hard
+  situation (stress, cost, a long trip to the pharmacy) is neutral, however serious the problem is.
+  0.7 to 1.0: satisfied. Feels heard or helped, opens up willingly, thanks you, sounds relieved or glad
+  you called.
+  Rate each message on its own, so the score can rise and fall during the call.
 - conversation_state is "ongoing", "needs_met" or "patient_done".
 """

@@ -30,7 +30,7 @@ More detail: [Architecture](./docs/architecture.md).
 | Emergency detection from context (clinical knowledge) plus keywords; 911 or the 988 crisis line | ✅ Live |
 | Identity check before anything health-related; callback time noted if someone else answers | ✅ Live |
 | Natural call endings ("anything else?") with a feedback-form opt-in | ✅ Live |
-| Live patient sentiment score (0–1) on the dashboard | ✅ Live |
+| Live score (0–1) of how satisfied the patient seems with the call, on the dashboard | ✅ Live |
 | Start calls by uploading a JSON file (Azure Functions + Event Grid) | ✅ Live |
 | Live call dashboard with guardrail and emergency alerts | ✅ Live |
 | Secrets in Azure Key Vault; automated tests and deploys (GitHub Actions) | ✅ Live |
