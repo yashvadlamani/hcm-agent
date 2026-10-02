@@ -27,20 +27,34 @@ class VoiceAgentGuardrails:
         r"based on your symptoms?, (you )?have",
     ]
 
-    # Medical advice patterns
-    ADVICE_PATTERNS = [
-        r"(take|stop|increase|decrease) (your )?(\w+ ){0,2}(medication|insulin|pill|drug)",
-        r"(you should|i recommend|try|consider) .*?(medication|treatment|therapy|exercise routine)",
-        r"(eat|avoid|eliminate) .*?(food|drink|diet)",
-        r"don't (take|use|eat)",
-    ]
-
-    # Prescription change patterns
-    PRESCRIPTION_PATTERNS = [
-        r"(change|switch|stop|start) .*?(medication|insulin|dose)",
-        r"(increase|decrease|adjust) your .*?(dose|dosage)",
-        r"(take|use) (more|less) .*?(insulin|medication)",
-    ]
+    # Advice and medication changes are judged one sentence at a time, and only when Clara is telling
+    # the patient what to do: a command ("Take less insulin") or a recommendation ("You should...",
+    # "Try..."). Talking or asking about the same things ("How has that affected when you take your
+    # insulin?", "Skipping doses when the pharmacy is closed must be frustrating") is not advice.
+    RECOMMENDING = (r"\b(you should|you could|you can|you need to|you must|you have to|you might want to|"
+                    r"you may want to|you'd better|i recommend|i'd recommend|i suggest|i'd suggest|i would suggest|"
+                    r"i advise|my advice is to|try to|try|consider|make sure to|make sure you|it's best to|"
+                    r"it is best to|it's fine to|it's okay to|it's ok to|go ahead and|why don't you|how about|"
+                    r"what if you|have you tried|have you considered)\s+(\w+\s+){0,3}?")
+    COMMANDING = r"^\W*((please|just|maybe|so|then|and)\s+)*"
+    MEDICINE = r"\b(medications?|medicines?|meds|insulin|doses?|dosage|pills?|tablets?|metformin|prescriptions?)\b"
+    ADVICE_TOPIC = (r"\b(medications?|medicines?|meds|insulin|pills?|tablets?|drugs?|supplements?|vitamins?|"
+                    r"treatments?|therapy|diet|foods?|carbs|sugar|meals?|exercise|workouts?)\b")
+    CHANGE = (r"(change|switch|stop|start|increase|decrease|reduce|adjust|skip|split|halve|double|cut|stretch|"
+              r"lower|raise|take (more|less|half|double|extra|fewer)|use (more|less))\b")
+    CHANGING = (r"(chang(e|ing)|switch(ing)?|stop(ping)?|start(ing)?|increas(e|ing)|decreas(e|ing)|reduc(e|ing)|"
+                r"adjust(ing)?|skip(ping)?|split(ting)?|halv(e|ing)|doubl(e|ing)|cut(ting)?|stretch(ing)?|"
+                r"lower(ing)?|rais(e|ing)|tak(e|ing) (more|less|half|double|extra|fewer)|us(e|ing) (more|less))\b")
+    ADVISE = r"((don't|do not|never)\s+)?(take|use|eat|drink|avoid|eliminate|add|follow)\b"
+    ADVISING = r"((don't|do not|never|not)\s+)?(tak(e|ing)|us(e|ing)|eat(ing)?|drink(ing)?|avoid(ing)?|" \
+               r"eliminat(e|ing)|add(ing)?|follow(ing)?)\b"
+    PRESCRIPTION_PATTERNS = [COMMANDING + CHANGE + r".{0,40}?" + MEDICINE,
+                             RECOMMENDING + CHANGING + r".{0,40}?" + MEDICINE]
+    ADVICE_PATTERNS = [COMMANDING + ADVISE + r".{0,40}?" + ADVICE_TOPIC,
+                       RECOMMENDING + ADVISING + r".{0,40}?" + ADVICE_TOPIC]
+    # Declining to advise, or pointing back to what the doctor prescribed, is the safe answer.
+    NOT_ADVICE = (r"\b(i can't|i cannot|i can not|i'm not able to|i am not able to|i'm unable to|i won't|"
+                  r"not something i can|as prescribed|as directed|as your doctor)\b")
 
     # Promises Clara can't keep: she can't connect, transfer, schedule, send or arrange anything,
     # or commit anyone else to act. "I'll note that for your care team" is fine and isn't matched.
@@ -76,6 +90,7 @@ class VoiceAgentGuardrails:
         self.advice_regex = [re.compile(p, re.IGNORECASE) for p in self.ADVICE_PATTERNS]
         self.prescription_regex = [re.compile(p, re.IGNORECASE) for p in self.PRESCRIPTION_PATTERNS]
         self.promise_regex = [re.compile(p, re.IGNORECASE) for p in self.PROMISE_PATTERNS]
+        self.not_advice_regex = re.compile(self.NOT_ADVICE, re.IGNORECASE)
 
     def check_agent_response(self, response: str) -> Tuple[GuardrailViolation, str]:
         """
@@ -97,16 +112,14 @@ class VoiceAgentGuardrails:
             if pattern.search(response):
                 return GuardrailViolation.PROMISE, f"Promise pattern: {response[:100]}"
 
-        # Check for prescription changes
-        for pattern in self.prescription_regex:
-            if pattern.search(response):
+        # Check each sentence for medication changes, then for other medical advice
+        sentences = [s for s in re.split(r"(?<=[.!?;])\s+", response) if not self.not_advice_regex.search(s)]
+        for sentence in sentences:
+            if any(pattern.search(sentence) for pattern in self.prescription_regex):
                 return GuardrailViolation.PRESCRIPTION_CHANGE, f"Prescription change pattern: {response[:100]}"
-
-        # Check for medical advice (excluding appointment scheduling)
-        if not ("schedule" in response.lower() or "appointment" in response.lower()):
-            for pattern in self.advice_regex:
-                if pattern.search(response):
-                    return GuardrailViolation.MEDICAL_ADVICE, f"Medical advice pattern: {response[:100]}"
+        for sentence in sentences:
+            if any(pattern.search(sentence) for pattern in self.advice_regex):
+                return GuardrailViolation.MEDICAL_ADVICE, f"Medical advice pattern: {response[:100]}"
 
         return GuardrailViolation.NONE, ""
 

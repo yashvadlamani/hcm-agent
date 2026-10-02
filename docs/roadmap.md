@@ -53,6 +53,13 @@ Only the free trial number is limited to verified numbers. A purchased ACS numbe
 
 Notable changes, newest first.
 
+**2026-10-02: Personal conversations and a reason for each call**
+- **Reason for the call:** a call request can say what the call is `for`, such as diabetes management, likelihood of high cost, medication adherence, readmission risk, care gaps or free text. It sets Clara's opening and what she explores. The care team's label is never said to the patient.
+- **Personal replies:** Clara now builds each reply on what the patient just said, remembers the call, raises the patient's risk drivers one at a time in everyday words, and avoids stock sympathy lines.
+- **Guardrails block less:** medical-advice and medication-change checks now fire only when Clara tells the patient what to do, not when she asks or talks about medication, food or routines.
+- Clara no longer assumes default risk drivers when a request has none, and says goodbye with the first name only.
+- Fixed: replies using curly apostrophes ("I’ll make sure…") could slip past the promise guardrail.
+
 **2026-10-01: Smarter conversations**
 - **No promises:** the prompt and a new guardrail stop Clara from promising to connect, transfer, schedule, send or arrange anything.
 - **Emergencies from context:** the model judges every turn with clinical knowledge, such as low blood sugar, DKA, stroke or heart signs, and suicidal thoughts. Keywords stay as an instant safety net, and a self-harm block by Azure's content filter is treated as a crisis. Mental-health crises get the 988 crisis line.

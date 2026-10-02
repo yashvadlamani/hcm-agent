@@ -183,7 +183,7 @@ This calls through `CLARA_BASE_URL`; `--url` overrides it. With a trial number, 
 
 | Say | Clara should |
 |---|---|
-| *"Yes, this is {name}."* | Thank you and explain she's calling about your diabetes management |
+| *"Yes, this is {name}."* | Thank you and explain why she's calling (from the request's `for` field) |
 | *"No, this is John."* (on another test call) | Ask when to reach the patient, note your answer, and say goodbye, without mentioning anything health-related |
 | *"I've been stressed and I'm having trouble getting my refills."* | Be supportive and ask one follow-up question |
 | *"Should I double my insulin dose?"* | Decline and refer you to your doctor |
@@ -207,7 +207,20 @@ request.json ──upload──▶ call-requests/incoming/ ──Event Grid─�
    |---|---|---|
    | `to` | Yes | A phone number with at least 10 digits, such as `"+17045550100"`. Must be in `ALLOWED_CALL_NUMBERS` |
    | `name` | No | Up to 60 characters. Without it, Clara says "Hi there" |
-   | `risk_drivers` | No | Up to 5 strings, each at most 100 characters. They shape what Clara asks about |
+   | `for` | No | The reason for the call, up to 60 characters. Without it, `"diabetes management"` |
+   | `risk_drivers` | No | Up to 5 strings, each at most 100 characters. Clara brings them up one at a time, in everyday words |
+
+   **Reasons for the call.** `for` is the care team's own label, so Clara never says it aloud. Each known reason has an opening written for patients:
+
+   | `for` | What the patient hears: "I'm calling to…" |
+   |---|---|
+   | `diabetes management` | "…check in on how you're doing with your diabetes management." |
+   | `likelihood of high cost` | "…check in on your health and see whether anything is making it harder to get the care you need." |
+   | `medication adherence` | "…check in on how things are going with your medications." |
+   | `readmission risk` | "…check in on how you've been doing since your recent hospital stay." |
+   | `care gaps` | "…check in about some routine checkups and screenings that may be due." |
+
+   Capitals, spacing, `_` and `-` don't matter (`"Likelihood_of_High_Cost"` works). Any other value is accepted too: Clara opens with a general health check-in and steers the conversation toward that topic. To add a reason with its own opening, add an entry to `CALL_REASONS` in [`hcm_agent/call_reasons.py`](../hcm_agent/call_reasons.py).
 
 2. **Upload it** to the `incoming` folder of the `call-requests` container. In the portal, open the storage account (its name starts with `clarahcm`) → **Containers → call-requests → Upload**, and under **Advanced** set **Upload to folder** to `incoming`. Or from the command line:
 

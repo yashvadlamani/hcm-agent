@@ -17,6 +17,8 @@ def main() -> None:
     parser.add_argument("--to", required=True,
                         help="Number to call (must be verified when using an ACS trial phone number)")
     parser.add_argument("--name", default="there", help="Patient's first name for the greeting")
+    parser.add_argument("--for", dest="reason", default="",
+                        help='Reason for the call, e.g. "likelihood of high cost" (default: diabetes management)')
     args = parser.parse_args()
 
     settings = config.load()
@@ -26,7 +28,7 @@ def main() -> None:
         problems.append("Pass --url or set CLARA_BASE_URL")
     try:
         config.require(problems)
-        sid = place_call(settings, base_url, args.to, args.name,
+        sid = place_call(settings, base_url, args.to, args.name, reason=args.reason,
                          on_wait=lambda: print("Waking the server (this can take up to a minute)..."))
     except (config.ConfigError, CallNotAllowed, TimeoutError) as e:
         raise SystemExit(str(e))

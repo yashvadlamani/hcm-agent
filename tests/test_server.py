@@ -82,10 +82,10 @@ def send(client, event_type, key=KEY, ctx="", **data):
     return client.post(f"/acs/{key}/events{query}", json=body).status_code
 
 
-def connect(client, name="Yash", drivers=(), confirm=True):
+def connect(client, name="Yash", drivers=(), confirm=True, reason=""):
     """Start a call. confirm=True answers Clara's opening as the patient ("Yes, this is Yash.")."""
     from hcm_agent.telephony.outbound import encode_call_context
-    status = send(client, "CallConnected", ctx=encode_call_context(name, list(drivers)))
+    status = send(client, "CallConnected", ctx=encode_call_context(name, list(drivers), reason))
     if confirm:
         speak(client, f"Yes, this is {name}.")
     return status
@@ -227,6 +227,14 @@ def test_greeting_reads_encoded_call_context(client):
     connect(client, "Yash", drivers)
     started = next(e for e in live_feed.history() if e["type"] == "call_started")
     assert started["name"] == "Yash" and started["drivers"] == drivers
+    assert started["reason"] == "diabetes management"
+
+
+def test_call_uses_the_reason_from_the_request(client, acs):
+    connect(client, "Yash", reason="Likelihood of high cost")
+    started = next(e for e in live_feed.history() if e["type"] == "call_started")
+    assert started["reason"] == "likelihood of high cost" and started["drivers"] == []
+    assert acs.last()[1].startswith("Thanks, Yash. I'm calling to check in on your health")
 
 
 def test_live_feed_records_a_conversation(client, model):

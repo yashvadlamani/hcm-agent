@@ -31,6 +31,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from .. import config
 from ..agent import HCMVoiceAgent
 from ..agent.llm import LLM, create_llm
+from ..call_reasons import call_reason
 from . import live_feed
 from .outbound import decode_call_context, to_e164
 
@@ -53,7 +54,6 @@ VOICE = settings.acs_voice
 INITIAL_SILENCE_SECONDS = 8   # how long to wait for the patient to start speaking
 END_SILENCE_SECONDS = 2       # pause that marks the end of what they said
 MAX_SILENT_TURNS = 2          # re-ask once, then say goodbye
-DEFAULT_RISK_DRIVERS = ["HbA1c above 7.5%", "Missed medication refills"]
 NO_INPUT_GOODBYE = "I didn't hear anything, so I'll let you go. Your care team will follow up. Goodbye."
 
 
@@ -139,14 +139,15 @@ def handle_event(event_type: str, data: dict, ctx: str) -> None:
 
 
 def on_connected(call_id: str, ctx: str) -> None:
-    name, drivers = decode_call_context(ctx)
+    name, drivers, reason = decode_call_context(ctx)
+    reason = call_reason(reason).label
     executor.submit(warm_up_model)
     agent = HCMVoiceAgent(llm=shared_llm())
-    agent.initialize_call({"name": name, "risk_drivers": drivers or DEFAULT_RISK_DRIVERS})
+    agent.initialize_call({"name": name, "risk_drivers": drivers, "call_reason": reason})
     greeting = agent.start_call()  # asks for the patient by name before anything health-related
     calls[call_id] = CallState(agent, find_patient(call_id))
-    logger.info("Call %s connected for %s", call_id, name)
-    live_feed.publish(call_id, "call_started", name=name, drivers=agent.patient_context.get("risk_drivers", []),
+    logger.info("Call %s connected for %s (%s)", call_id, name, reason)
+    live_feed.publish(call_id, "call_started", name=name, drivers=drivers, reason=reason,
                       sentiment=agent.sentiment)
     say_and_listen(call_id, clara_says(call_id, greeting, kind="greeting"))
 

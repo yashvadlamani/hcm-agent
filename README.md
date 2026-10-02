@@ -13,7 +13,7 @@
 
 ![Current workflow: a JSON upload to Azure storage triggers an Azure Function, which asks Azure Communication Services to call the patient; the Clara server on App Service runs the conversation with Azure OpenAI and guardrails.](./docs/workflow.svg)
 
-1. **A call request is uploaded:** a small JSON file with the patient's number, name and risk drivers.
+1. **A call request is uploaded:** a small JSON file with the patient's number, name, the reason for the call and risk drivers.
 2. **An Azure Function validates it** (allow-list, format, hourly limit) and asks **Azure Communication Services** to dial.
 3. **The Clara server runs the conversation.** Each turn, the patient's speech is transcribed, Azure OpenAI drafts a reply, and safety guardrails check it before Clara speaks.
 4. **The care team watches live** on a password-protected web page.
@@ -25,7 +25,7 @@ More detail: [Architecture](./docs/architecture.md).
 | Capability | Status |
 |---|---|
 | Live two-way phone conversations (Azure Communication Services, Azure AI Speech) | ✅ Live |
-| Replies personalized to the patient's name and risk drivers (Azure OpenAI or Claude) | ✅ Live |
+| Replies personalized to the patient: their own words, the reason for the call and their risk drivers (Azure OpenAI or Claude) | ✅ Live |
 | Safety guardrails: no diagnoses, no medical advice, no medication changes, no promises | ✅ Live |
 | Emergency detection from context (clinical knowledge) plus keywords; 911 or the 988 crisis line | ✅ Live |
 | Identity check before anything health-related; callback time noted if someone else answers | ✅ Live |

@@ -26,6 +26,7 @@ class MockVoiceInterface:
         print("\n" + "="*70)
         print("📞 VOICE CALL STARTED")
         print(f"Patient: {patient_context.get('name', 'Unknown')}")
+        print(f"Calling for: {patient_context.get('call_reason') or 'diabetes management'}")
         print(f"Risk Drivers: {', '.join(patient_context.get('risk_drivers', []))}")
         print("="*70 + "\n")
         print(f"🤖 Agent: {self.agent.start_call()}\n")
@@ -72,12 +73,14 @@ def run_interactive_call(agent):
 
     # Get patient info
     patient_name = input("Patient name: ").strip() or "John Smith"
+    call_reason = input("Reason for the call [diabetes management]: ").strip()
     risk_drivers = input("Risk drivers (comma-separated): ").strip()
     risk_drivers = ([d.strip() for d in risk_drivers.split(",")] if risk_drivers
                     else ["HbA1c > 7.5%", "Blood pressure elevated"])
 
     patient_context = {
         "name": patient_name,
+        "call_reason": call_reason,
         "risk_drivers": risk_drivers
     }
 

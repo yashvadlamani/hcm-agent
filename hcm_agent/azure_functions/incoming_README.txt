@@ -6,10 +6,12 @@ Example request.json:
   {
     "to": "+1XXXXXXXXXX",
     "name": "Yash",
+    "for": "diabetes management",
     "risk_drivers": ["HbA1c above 7.5% at last check"]
   }
 
-Only "to" is required. Up to 5 risk drivers, each at most 100 characters. Only numbers in
-ALLOWED_CALL_NUMBERS are called.
+Only "to" is required. "for" is the reason for the call: diabetes management (the default),
+likelihood of high cost, medication adherence, readmission risk, care gaps, or your own words.
+Up to 5 risk drivers, each at most 100 characters. Only numbers in ALLOWED_CALL_NUMBERS are called.
 
 This README keeps the incoming/ folder visible. Leave it here; it never triggers a call.

@@ -50,7 +50,7 @@ sequenceDiagram
 
    | Answer | What Clara does |
    |---|---|
-   | *"Yes, this is Maria"*, *"Speaking"* | *"Thanks, Maria. I'm calling to check in on how you're doing with your diabetes management…"*, then the check-in |
+   | *"Yes, this is Maria"*, *"Speaking"* | *"Thanks, Maria. I'm calling to check in on how you're doing with your diabetes management…"* (the wording follows the request's `for` field), then the check-in |
    | *"No, this is John"*, *"She's not home"* | *"What would be a good time to reach Maria?"* She notes the answer and ends politely. If a time was already given, she notes it right away |
    | *"Wrong number"* | Apologizes and ends the call |
    | Unclear | Asks once more, then asks for a good time |
@@ -79,7 +79,7 @@ Each event is acknowledged immediately and handled in the background, so a slow 
 ## Guardrails
 
 1. **System prompt** ([`prompts.py`](../hcm_agent/agent/prompts.py)): Clara never diagnoses, gives medical advice or suggests medication changes, and **makes no promises**. She can't connect, transfer, schedule, send or arrange anything, or commit anyone to call back. The only thing she offers is to note something for the care team.
-2. **Response check** ([`guardrails.py`](../hcm_agent/agent/guardrails.py)): every reply is scanned for diagnosis, medical-advice, prescription-change and promise patterns. A match replaces it with a safe fallback.
+2. **Response check** ([`guardrails.py`](../hcm_agent/agent/guardrails.py)): every reply is scanned for diagnosis, medical-advice, prescription-change and promise patterns. A match replaces it with a safe fallback. Advice and medication changes are blocked only when Clara tells the patient what to do ("Take less insulin", "You should…", "Try…"); asking or talking about medication, food and routines is allowed, and so is declining to advise.
 3. **Emergencies, three layers:**
    - **Keywords:** an instant check, such as "chest pain" or "want to die".
    - **The model's clinical assessment:** it recognizes, in everyday words, severe low blood sugar (shaking, confusion, sweating), diabetic ketoacidosis (vomiting, fruity breath), stroke and heart-attack signs, breathing trouble, and suicidal thoughts.

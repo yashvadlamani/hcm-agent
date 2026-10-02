@@ -3,7 +3,8 @@
 Upload to the `call-requests` container under `incoming/`, for example
 `incoming/yash-test.json`:
 
-    {"to": "+15551234567", "name": "Yash", "risk_drivers": ["HbA1c above 7.5%"]}
+    {"to": "+15551234567", "name": "Yash", "for": "diabetes management",
+     "risk_drivers": ["HbA1c above 7.5%"]}
 
 Each file places at most one call. The file is then moved to `processed/` (with the
 call connection ID) or `failed/` (with the reason). Only numbers in ALLOWED_CALL_NUMBERS
@@ -95,7 +96,8 @@ def _handle(raw: bytes, container: ContainerClient) -> tuple[str, dict]:
         return "failed", {"error": f"rate limit: {settings.max_calls_per_hour} calls per hour"}
 
     try:
-        sid = place_call(settings, settings.clara_base_url, request.to, request.name, request.risk_drivers)
+        sid = place_call(settings, settings.clara_base_url, request.to, request.name, request.risk_drivers,
+                         reason=request.reason)
     except CallNotAllowed as e:
         return "failed", {"error": str(e)}
     except TimeoutError as e:
