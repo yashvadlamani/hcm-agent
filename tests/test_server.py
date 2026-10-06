@@ -66,6 +66,8 @@ def acs(monkeypatch, model):
     monkeypatch.setattr(server, "settings", dataclasses.replace(VALID, phone_webhook_key=KEY))
     monkeypatch.setattr(server, "acs", lambda: fake)
     monkeypatch.setattr(server, "executor", RunNow())
+    monkeypatch.setattr(server, "identity_record_for_phone", lambda phone: {
+        "name": "Yash Patel", "date_of_birth": "1990-01-02", "member_id": "m1", "tenant_id": "test"})
     server.calls.clear()
     live_feed.clear()
     return fake
@@ -87,7 +89,8 @@ def connect(client, name="Yash", drivers=(), confirm=True, reason=""):
     from hcm_agent.telephony.outbound import encode_call_context
     status = send(client, "CallConnected", ctx=encode_call_context(name, list(drivers), reason))
     if confirm:
-        speak(client, f"Yes, this is {name}.")
+        speak(client, "My name is Yash Patel.")
+        speak(client, "January 2, 1990")
     return status
 
 
@@ -113,29 +116,42 @@ def test_opening_asks_for_the_patient_and_clara_listens(client, acs):
     assert connect(client, confirm=False) == 200
     action, text, target = acs.last()
     assert action == "listen" and target == PATIENT
-    assert text == ("Hi, I'm Clara, a virtual assistant from your health insurance care team. "
-                    "May I speak with Yash, please?")
+    from hcm_agent.agent.conversation import IDENTITY_OPENING
+    assert text == IDENTITY_OPENING
 
 
 def test_confirmed_patient_hears_the_reason_for_the_call(client, acs, model):
     connect(client)
     action, text, _ = acs.last()
-    assert action == "listen" and text.startswith("Thanks, Yash. I'm calling to check in")
+    assert action == "listen" and text.startswith("Thank you for verifying your identity. I'm calling to check in")
     assert model.requests == []
     identity = next(e for e in live_feed.history() if e["type"] == "identity")
     assert identity["status"] == "confirmed"
 
 
-def test_someone_else_answering_leads_to_a_noted_callback_time(client, acs):
+@pytest.mark.parametrize("wrong_dob", [False, True])
+def test_identity_failure_plays_goodbye_then_disconnects(client, acs, model, wrong_dob):
     connect(client, confirm=False)
-    speak(client, "No, this is John.")
-    assert acs.last() == ("listen", "No problem. What would be a good time to reach Yash?", PATIENT)
-    speak(client, "Tomorrow after 5.")
+    if wrong_dob:
+        speak(client, "Yash Patel")
+        assert "date of birth" in acs.last()[1]
+        speak(client, "January 3, 1990")
+    else:
+        speak(client, "John Smith")
     action, text, context = acs.last()
-    assert action == "say" and "noted" in text and context == "goodbye"
-    callback = next(e for e in live_feed.history() if e["type"] == "callback")
-    assert callback["time"] == "Tomorrow after 5." and callback["spoke_with"] == "John"
-    assert event_types()[-1] == "call_ended"
+    assert action == "say" and "couldn't verify" in text and context == "goodbye"
+    assert CALL not in server.calls and model.requests == []
+    assert not any(event["type"] == "callback" for event in live_feed.history())
+    assert "1990" not in str(live_feed.history())
+    send(client, "PlayCompleted", operationContext="goodbye")
+    assert acs.last() == ("hang_up",)
+
+
+def test_missing_server_member_record_ends_call(client, acs, monkeypatch):
+    monkeypatch.setattr(server, "identity_record_for_phone", lambda phone: {})
+    connect(client, confirm=False)
+    speak(client, "Yash Patel")
+    assert acs.last()[0] == "say" and "couldn't verify" in acs.last()[1]
 
 
 def test_reply_is_spoken_and_clara_listens_again(client, acs):
@@ -234,7 +250,7 @@ def test_call_uses_the_reason_from_the_request(client, acs):
     connect(client, "Yash", reason="Likelihood of high cost")
     started = next(e for e in live_feed.history() if e["type"] == "call_started")
     assert started["reason"] == "likelihood of high cost" and started["drivers"] == []
-    assert acs.last()[1].startswith("Thanks, Yash. I'm calling to check in on your health")
+    assert acs.last()[1].startswith("Thank you for verifying your identity. I'm calling to check in on your health")
 
 
 def test_live_feed_records_a_conversation(client, model):
@@ -245,6 +261,7 @@ def test_live_feed_records_a_conversation(client, model):
     speak(client, "No thanks.")
     assert event_types() == [
         "call_started", "clara",
+        "patient", "thinking", "clara",
         "patient", "thinking", "identity", "clara",
         "patient", "thinking", "sentiment", "clara",
         "patient", "thinking", "closing", "clara",

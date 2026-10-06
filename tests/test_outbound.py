@@ -6,14 +6,17 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from hcm_agent.telephony.outbound import (
+    CallNotAuthorized,
     CallNotAllowed,
     check_allowed,
     decode_call_context,
     encode_call_context,
     place_call,
+    place_policy_authorized_call,
     to_e164,
 )
 from test_config import VALID
+from hcm_agent.workflows import OutreachResult
 
 
 class FakeACS:
@@ -83,4 +86,13 @@ def test_place_call_refuses_before_contacting_acs():
     acs = FakeACS()
     with pytest.raises(CallNotAllowed):
         place_call(VALID, "https://clara.example.net", "+15559999999", client=acs, wake=False)
+    assert acs.created == []
+
+
+def test_policy_authorized_dial_rejects_a_blocked_graph_result_before_contacting_acs():
+    acs = FakeACS()
+    blocked = OutreachResult(False, "blocked", "consent missing")
+    with pytest.raises(CallNotAuthorized):
+        place_policy_authorized_call(VALID, "https://clara.example.net", "+15555550100", blocked,
+                                     client=acs, wake=False)
     assert acs.created == []

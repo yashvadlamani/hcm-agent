@@ -44,7 +44,7 @@ def placed(monkeypatch):
         calls.append({"base_url": base_url, "to": to, "name": name, "drivers": drivers, "reason": reason})
         return "call-fake-123"
 
-    monkeypatch.setattr(function_app, "place_call", fake_place_call)
+    monkeypatch.setattr(function_app, "place_member_call", fake_place_call)
     return calls
 
 

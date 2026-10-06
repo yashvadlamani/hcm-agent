@@ -30,8 +30,21 @@ class ScriptedLLM:
     def __init__(self, *responses):
         self.responses = list(responses) or [turn_json()]
         self.requests = []
+        self.tool_requests = []
 
-    def complete(self, system_prompt, messages, json_mode=False):
+    def call_and_review_tool(self, system_prompt, payload, tool, execute):
+        from hcm_agent.tools.identity import normalize_dob, normalize_name
+        self.tool_requests.append(tool["function"]["name"])
+        if tool["function"]["name"] == "verify_full_name":
+            name = normalize_name(payload["answer"])
+            expected = normalize_name(payload["expected_name"])
+            mode = "exact" if name == expected else "first_name" if name == expected.split(" ")[0] else "mismatch"
+            result = execute({"provided_name": name, "match_type": mode})
+        else:
+            result = execute({"provided_dob": normalize_dob(payload["answer"]) or ""})
+        return result.get("verified", False)
+
+    def complete(self, system_prompt, messages, json_mode=False, **kwargs):
         self.requests.append({"system": system_prompt, "messages": list(messages), "json_mode": json_mode})
         return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
@@ -40,7 +53,10 @@ def new_agent(*responses, name="Maria", verified=True):
     """An agent mid-call. verified=True starts past the identity check, as most tests are about the check-in."""
     llm = ScriptedLLM(*responses)
     agent = HCMVoiceAgent(settings=VALID, llm=llm)
-    agent.initialize_call({"name": name, "risk_drivers": ["HbA1c above 7.5%"]})
+    agent.initialize_call({"name": name, "risk_drivers": ["HbA1c above 7.5%"]}, identity_record={
+        "member_id": "m1", "tenant_id": "test", "name": name if " " in name else name + " Lopez",
+        "date_of_birth": "1990-01-02",
+    })
     agent.start_call()
     if verified:
         agent.phase = "conversation"
@@ -242,7 +258,7 @@ class FilteredLLM(ScriptedLLM):
         super().__init__()
         self.categories = categories
 
-    def complete(self, system_prompt, messages, json_mode=False):
+    def complete(self, system_prompt, messages, json_mode=False, **kwargs):
         self.last_filter_categories = set(self.categories)
         return None
 
@@ -301,80 +317,57 @@ def test_filter_categories_are_read_from_azure_error_details():
     assert flagged_categories("no filter details") == set()
 
 
-# ---- Opening: confirming who answered ----
+# ---- Name and DOB verification ----
 
-def test_opening_asks_for_the_patient_without_mentioning_health():
+def test_opening_introduces_clara_without_revealing_member_details():
+    from hcm_agent.agent.conversation import IDENTITY_OPENING
     agent, _ = new_agent(verified=False)
-    opening = agent.conversation_history[-1]["content"]
-    assert opening == ("Hi, I'm Clara, a virtual assistant from your health insurance care team. "
-                       "May I speak with Maria, please?")
-    assert "diabetes" not in opening.lower()
+    assert agent.start_call() == IDENTITY_OPENING
+    assert "Maria" not in agent.opening() and "diabetes" not in agent.opening()
 
 
-@pytest.mark.parametrize("answer", ["Yes, this is Maria.", "Speaking.", "Yeah, that's me", "This is Maria", "Uh huh"])
-def test_confirmed_patient_moves_on_to_the_check_in(answer):
-    agent, llm = new_agent(verified=False)
+def test_identity_tools_run_in_order_and_keep_dob_out_of_model_context():
+    agent, llm = new_agent(name="Maria Lopez", verified=False)
+    first = agent.take_turn("My full name is Maria Lopez.")
+    assert first.phase == "verify_dob" and first.identity is None
+    assert "date of birth" in first.reply and "diabetes" not in first.reply
+    final = agent.take_turn("January 2nd, 1990")
+    assert final.identity == "confirmed" and final.phase == "conversation"
+    assert final.reply.startswith("Thank you for verifying your identity.")
+    assert [e["tool"] for e in agent.identity_gateway.audit_log] == ["verify_full_name", "verify_dob"]
+    assert llm.requests == []
+    agent.take_turn("I am doing well.")
+    assert "1990" not in json.dumps(llm.requests)
+    assert "1990" not in agent.get_conversation_transcript()
+
+
+@pytest.mark.parametrize("answer", ["Yes", "Speaking", "Maria Smith", "Yes, this is Mary Lopez.",
+                                   "This is Maria Lopez's husband.", "Wrong number", "Goodbye"])
+def test_incorrect_or_incomplete_name_ends_call_without_dob_question(answer):
+    agent, llm = new_agent(name="Maria Lopez", verified=False)
     turn = agent.take_turn(answer)
-    assert turn.identity == "confirmed" and turn.phase == "conversation" and turn.action == "listen"
-    assert turn.reply.startswith("Thanks, Maria. I'm calling to check in on how you're doing with your diabetes")
-    assert llm.requests == []  # no model needed for the opening
-
-
-def test_someone_else_is_asked_for_a_good_time_then_the_time_is_noted():
-    agent, llm = new_agent(verified=False)
-    turn = agent.take_turn("No, this is John.")
-    assert turn.identity == "not_available" and turn.spoke_with == "John" and turn.action == "listen"
-    assert turn.reply == "No problem. What would be a good time to reach Maria?"
-    assert "diabetes" not in turn.reply.lower()  # nothing health-related said to someone else
-
-    final = agent.take_turn("Try tomorrow after 5 pm.")
-    assert final.action == "hang_up" and final.callback_time == "Try tomorrow after 5 pm."
-    assert final.end_reason == "Patient not available"
-    assert "noted" in final.reply and "call" not in final.reply.lower()  # no promise to call back
-    summary = agent.end_call()
-    assert summary["callback_time"] == "Try tomorrow after 5 pm." and summary["spoke_with"] == "John"
+    assert turn.identity == "failed" and turn.action == "hang_up"
+    assert "couldn't verify" in turn.reply and "date of birth" not in turn.reply
+    assert "Maria" not in turn.reply and llm.requests == []
+    assert "verify_dob" not in [e["tool"] for e in agent.identity_gateway.audit_log]
+    assert agent.take_turn("Maria Lopez").action == "hang_up"
     assert llm.requests == []
 
 
-@pytest.mark.parametrize("heard", ["Yes, this is Yesh.", "Yes, this is Josh.", "This is Yash", "It's Yosh"])
-def test_misheard_names_still_confirm_the_patient(heard):
-    """Found on a real call: speech recognition heard "Yes, this is Yesh" for "Yes, this is Yash"."""
-    agent, _ = new_agent(name="Yash", verified=False)
-    turn = agent.take_turn(heard)
-    assert turn.identity == "confirmed" and turn.phase == "conversation"
+@pytest.mark.parametrize("answer", ["January 3, 1990", "January 2", "02/30/1990", "I won't say", ""])
+def test_wrong_or_incomplete_dob_ends_call(answer):
+    agent, llm = new_agent(name="Maria Lopez", verified=False)
+    agent.take_turn("Maria Lopez")
+    turn = agent.take_turn(answer)
+    assert turn.action == "hang_up" and turn.identity == "failed"
+    assert "1990" not in turn.reply and llm.requests == []
 
 
-def test_a_clearly_different_name_is_someone_else():
-    agent, _ = new_agent(name="Yash", verified=False)
-    assert agent.take_turn("This is Michael.").identity == "not_available"
-
-
-def test_a_time_given_up_front_is_noted_without_asking_again():
-    agent, _ = new_agent(verified=False)
-    turn = agent.take_turn("She's not here right now, she gets back around 6 tonight.")
-    assert turn.action == "hang_up" and turn.callback_time.endswith("around 6 tonight.")
-
-
-def test_a_relative_naming_the_patient_is_not_mistaken_for_them():
-    agent, _ = new_agent(verified=False)
-    turn = agent.take_turn("No, this is Maria's husband.")
-    assert turn.identity == "not_available" and turn.spoke_with is None
-    assert "good time to reach Maria" in turn.reply
-
-
-def test_wrong_number_ends_politely():
-    agent, _ = new_agent(verified=False)
-    turn = agent.take_turn("I think you have the wrong number.")
-    assert turn.identity == "wrong_number" and turn.action == "hang_up"
-    assert turn.end_reason == "Wrong number" and "Maria" not in turn.reply
-
-
-def test_unclear_answer_asks_again_then_moves_on():
-    agent, _ = new_agent(verified=False)
-    first = agent.take_turn("Hello?")
-    assert first.reply == "Sorry, I didn't catch that. Am I speaking with Maria?" and first.phase == "verify"
-    second = agent.take_turn("What's this about?")
-    assert second.phase == "callback" and "good time to reach Maria" in second.reply
+def test_missing_record_does_not_bypass_verification():
+    agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
+    agent.initialize_call({"name": "Maria Lopez"})
+    assert agent.phase == "verify_name"
+    assert agent.take_turn("Maria Lopez").action == "hang_up"
 
 
 def test_emergency_during_the_opening_still_wins():
@@ -383,20 +376,16 @@ def test_emergency_during_the_opening_still_wins():
     assert turn.emergency is not None and turn.action == "hang_up"
 
 
-def test_without_a_name_the_call_starts_with_the_check_in():
-    agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
-    agent.initialize_call({"name": "there"})
-    assert agent.phase == "conversation" and "diabetes management" in agent.start_call()
-
-
 # ---- The reason for the call and personal replies ----
 
 def test_the_reason_for_the_call_shapes_what_the_patient_hears():
     agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
-    agent.initialize_call({"name": "Maria Lopez", "call_reason": "likelihood of high cost"})
+    agent.initialize_call({"name": "Maria Lopez", "call_reason": "likelihood of high cost"}, identity_record={
+        "name": "Maria Lopez", "date_of_birth": "1990-01-02", "tenant_id": "test", "member_id": "m1"})
     agent.start_call()
-    reply = agent.take_turn("Yes, this is Maria.").reply
-    assert reply.startswith("Thanks, Maria. I'm calling to check in on your health")
+    agent.take_turn("Maria Lopez")
+    reply = agent.take_turn("January 2, 1990").reply
+    assert reply.startswith("Thank you for verifying your identity. I'm calling to check in on your health")
     assert "cost" not in reply.lower() and "diabetes" not in reply.lower()  # the internal label is never spoken
 
 
@@ -410,9 +399,11 @@ def test_known_reasons_never_say_their_internal_label(label):
 def test_an_unlisted_reason_gets_a_general_opening_and_still_reaches_the_model():
     context = {"name": "Sam", "call_reason": "fall prevention"}
     agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
-    agent.initialize_call(context)
+    agent.initialize_call(context, identity_record={
+        "name": "Sam Lee", "date_of_birth": "1990-01-02", "tenant_id": "test", "member_id": "m1"})
     agent.start_call()
-    assert "check in on how you're doing with your health" in agent.take_turn("Yes, this is Sam.").reply
+    agent.take_turn("Sam Lee")
+    assert "check in on how you're doing with your health" in agent.take_turn("January 2, 1990").reply
     assert "reason for this call: fall prevention." in get_system_prompt(context)
 
 
