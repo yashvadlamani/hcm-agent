@@ -46,7 +46,18 @@ sequenceDiagram
 ```
 
 1. **Start.** A JSON request lands in `call-requests/incoming/`, or someone runs `clara-call`. The function checks the request, wakes the server and asks ACS to dial.
-2. **Connect and verify identity.** When ACS sends `CallConnected`, Clara introduces herself as an automated Blue Cross Blue Shield care management assistant and asks for the caller's full name. GPT invokes `verify_full_name` and reviews its result; a matching first name or bounded phonetic spelling variant can pass this first step. Clara then asks for month, day and year of birth. GPT invokes `verify_dob` and reviews the result against the server-owned record. Only both successful steps unlock the reason for outreach. A mismatch plays an apology and disconnects after playback; service failures get an unavailable message. See [the live identity flow](architecture/workflow-and-tools.md#live-identity-verification).
+2. **Connect and confirm who answered.** How the call opens depends on whether the number has a **member record** (`data/demo_members.json`, or the file named by `MEMBER_DATA_PATH`):
+
+   | | With a member record | Without one (a call request alone) |
+   |---|---|---|
+   | Before dialing | Pre-call policy: consent, Do-Not-Call, calling window, attempt limit | The allow-list and hourly limit only |
+   | Opening | Clara asks for full name, then date of birth, checked against the record | *"May I speak with {name}, please?"* |
+   | If it isn't the patient | Apologizes and ends the call | *"What would be a good time to reach {name}?"*, notes the answer and ends. *"Wrong number"* ends politely. An unclear answer is asked once more |
+   | During the call | The model can use the member tools (benefits, guidance, navigation) | The model replies from the call request alone |
+
+   Set `MEMBER_RECORD_REQUIRED=true` to refuse every number without a member record. In both modes, **nothing health-related is said until the person on the line is confirmed.**
+
+   **With a member record.** When ACS sends `CallConnected`, Clara introduces herself as an automated Blue Cross Blue Shield care management assistant and asks for the caller's full name. GPT invokes `verify_full_name` and reviews its result; a matching first name or bounded phonetic spelling variant can pass this first step. Clara then asks for month, day and year of birth. GPT invokes `verify_dob` and reviews the result against the server-owned record. Only both successful steps unlock the reason for outreach. A mismatch plays an apology and disconnects after playback; service failures get an unavailable message. See [the live identity flow](architecture/workflow-and-tools.md#live-identity-verification).
 3. **Each turn.** ACS transcribes the patient and sends `RecognizeCompleted`. The agent ([`conversation.py`](../hcm_agent/agent/conversation.py)):
    1. runs an **instant keyword check** for emergencies, such as "chest pain" or "want to die". On a match it skips the model entirely.
    2. makes **one model request** that returns structured JSON: Clara's reply, a **clinical emergency assessment**, the patient's **sentiment** (0–1: how satisfied they seem with the call at that moment), and the **conversation state**.
@@ -85,7 +96,7 @@ The `/live` page shows each call as it happens:
 - **Sentiment:** how satisfied the patient seems with the call at that moment, not how hard their situation is. It starts at 0.50 (neutral) and updates every turn. It shows a score, a label (Dissatisfied below 0.35, Satisfied above 0.65), and a trend line, all in the panel at the top of the call. Each reading is smoothed (60% new, 40% previous) so one remark doesn't swing it.
 - **Guardrails and emergencies:** blocked replies, and emergencies with the reason and which layer caught them.
 - **Endings:** how each call ended, and whether the patient asked for the feedback form.
-- **Who answered:** whether the patient confirmed their identity, or who answered instead and the good time to call back.
+- **Who answered:** whether the patient confirmed their identity, whether name and date-of-birth verification failed, or who answered instead and the good time to call back. On member-record calls the spoken name and date of birth are masked.
 
 The feedback answer is recorded but no text is sent yet: the ACS trial number can't send SMS. Sending it is on the [roadmap](./roadmap.md).
 

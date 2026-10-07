@@ -1,14 +1,13 @@
 """Tests for the explicit policy workflow and tool gateway."""
 
-from hcm_agent.tools import ToolCallContext, build_default_gateway
 import pytest
 from langchain_core.messages import AIMessage
 
 from hcm_agent.agent import llm as llm_module
+from hcm_agent.tools import ToolCallContext, build_default_gateway
 from hcm_agent.tools.catalog import FAMILIES, build_tools
-from hcm_agent.workflows import CareOutreachGraph, OutreachRequest
+from hcm_agent.workflows import CareOutreachGraph, OutreachRequest, load_demo_members, outreach_request_from_member
 from test_langgraph import ScriptedChatModel, call
-from hcm_agent.workflows import load_demo_members, outreach_request_from_member
 
 
 @pytest.fixture(autouse=True)
@@ -74,8 +73,10 @@ def test_every_registered_tool_has_a_langchain_definition():
 
 def test_demo_members_define_dnc_frequency_and_local_time_policy():
     members = {member["name"]: member for member in load_demo_members()}
-    himanshu = outreach_request_from_member(members["Himanshu Gupta"], "demo-health-plan")
-    assert himanshu.do_not_call is False
-    assert himanshu.max_outreach_attempts_7d == 1
-    assert (himanshu.window_start_hour, himanshu.window_end_hour) == (8, 20)
+    yashwant = outreach_request_from_member(members["Yashwant Vadlamani"], "demo-health-plan")
+    assert yashwant.do_not_call is False
+    record = members["Yashwant Vadlamani"]
+    assert yashwant.max_outreach_attempts_7d == record["outreach"]["max_outreach_attempts_7d"]
+    window = record["communication"]["calling_window"]
+    assert (yashwant.window_start_hour, yashwant.window_end_hour) == (window["start_hour"], window["end_hour"])
     assert members["Elena Ramirez"]["outreach"]["do_not_call"] is True

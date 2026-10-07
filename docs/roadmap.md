@@ -9,8 +9,8 @@ Where Clara is today, what comes next, what's needed before calling real patient
 | Area | Built | Next |
 |---|---|---|
 | Phone calls | ACS calls, Azure neural voice and speech recognition | Purchased number, branded caller ID |
-| Conversation | Personalized replies, guardrails (including no promises), clinical emergency detection, natural endings, live sentiment | Answers grounded in approved clinical content (RAG) |
-| Starting calls | JSON upload → Azure Function, allow-list, hourly limit | Patient eligibility: consent, Do-Not-Call, calling hours |
+| Conversation | Personalized replies, guardrails (including no promises), clinical emergency detection, natural endings, live sentiment, name and date-of-birth verification and member tools (reference adapters) on a LangGraph tool loop | Answers grounded in approved clinical content (RAG); live systems behind the member tools |
+| Starting calls | JSON upload → Azure Function, allow-list, hourly limit; for people with a member record, consent, Do-Not-Call, calling-window and attempt-limit checks against demo data | The same checks against real consent and Do-Not-Call sources |
 | After the call | Transcript and summary in the server log, live dashboard, feedback-form opt-in recorded | Text the feedback form (needs an SMS-capable number), stored call records, care-manager escalation |
 | Platform | App Service, Functions, Key Vault, CI and automatic deploys | Always-on hosting, shared call state, monitoring and alerts |
 | Compliance | Test data only | BAA, audit logging, clinical and legal review |
@@ -44,7 +44,7 @@ Only the free trial number is limited to verified numbers. A purchased ACS numbe
 |---|---|
 | **HIPAA** | A Business Associate Agreement (BAA) with Microsoft covering ACS, App Service, Functions, Key Vault and Azure OpenAI, on a paid subscription. A BAA with Anthropic too, if Claude is used |
 | **Consent and calling rules** | Automated or AI-voice calls to cell phones generally need prior consent (TCPA), with a limited, strict healthcare exception. Compliance and legal teams must sign off |
-| **Eligibility checks** | Consent, Do-Not-Call and calling-hour checks before every call (milestone 1) |
+| **Eligibility checks** | Consent, Do-Not-Call and calling-hour checks before every call (milestone 1). The checks exist today as a reference implementation over demo data; production needs real consent records and the national Do-Not-Call list, with `MEMBER_RECORD_REQUIRED=true` |
 | **Security** | Validate ACS's signed event tokens; company sign-in (Microsoft Entra ID) for the dashboard; encrypted call records with audit logging |
 | **Reliability** | Always-on hosting; alerts for failed calls |
 | **Clinical review** | Prompts, guardrails and emergency handling reviewed by clinical and compliance teams |
@@ -52,6 +52,14 @@ Only the free trial number is limited to verified numbers. A purchased ACS numbe
 ## History
 
 Notable changes, newest first.
+
+**2026-10-07: LangGraph member workflow, alongside request-only calls**
+- **Member-record calls** (LangChain/LangGraph): pre-call policy checks, full-name and date-of-birth verification through identity tools, and member-scoped tools during the conversation.
+- **Request-only calls still work:** a number with no member record is called from its call request as before, with name confirmation, callback-time capture and wrong-number handling. `MEMBER_RECORD_REQUIRED=true` turns this off.
+- Fixed: on the LangChain model path the model could write its reply in front of the JSON object, so Clara would have read the JSON aloud and lost the emergency assessment, satisfaction score and call-ending signal. JSON mode is restored and the parser now tolerates that shape.
+- Fixed: time-zone data on Windows (`tzdata`), and lint errors that would have failed CI.
+- The demo member record is now a test profile with a made-up date of birth. Member-data changes redeploy both apps, and the call-request function has the model settings its pre-call check needs.
+- Docs: member records, both call modes, new troubleshooting entries, and Python equivalents for `clara-*` commands that Windows blocks.
 
 **2026-10-02: Sentiment measures satisfaction with the call**
 - The live score now tracks how satisfied the patient seems with the call at each moment. Calmly describing a hard situation is neutral; frustration with the call lowers it and feeling heard or helped raises it.

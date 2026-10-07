@@ -102,6 +102,8 @@ def _handle(raw: bytes, container: ContainerClient) -> tuple[str, dict]:
         return "failed", {"error": str(e)}
     except TimeoutError as e:
         return "failed", {"error": f"Clara server didn't wake up: {e}"}
+    except config.ConfigError as e:  # a member-record call needs the model settings for its pre-call check
+        return "failed", {"error": f"function is not configured for member calls: {e}"}
     except Exception as e:  # ACS errors: record the message, don't retry
         return "failed", {"error": f"Azure Communication Services refused the call: {e}"}
 

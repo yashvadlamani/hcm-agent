@@ -12,7 +12,7 @@ from hcm_agent.workflows.member_data import identity_record_for_name, identity_r
 from test_config import VALID
 from test_conversation import ScriptedLLM
 
-RECORD = {"member_id": "m1", "tenant_id": "test", "name": "Himanshu Gupta", "date_of_birth": "1990-01-02"}
+RECORD = {"member_id": "m1", "tenant_id": "test", "name": "Yashwant Vadlamani", "date_of_birth": "1990-01-02"}
 
 
 class InterpretingLLM(ScriptedLLM):
@@ -28,9 +28,9 @@ class InterpretingLLM(ScriptedLLM):
 
 
 @pytest.mark.parametrize("spoken,parsed,mode", [
-    ("Himanshu Gupta", "Himanshu Gupta", "exact"),
-    ("Himanshu", "Himanshu", "first_name"),
-    ("My name is Himanshoo Gupta", "Himanshoo Gupta", "phonetic"),
+    ("Yashwant Vadlamani", "Yashwant Vadlamani", "exact"),
+    ("Yashwant", "Yashwant", "first_name"),
+    ("My name is Yashwanth Vadlamani", "Yashwanth Vadlamani", "phonetic"),
 ])
 def test_gpt_interpretation_then_tool_then_review(spoken, parsed, mode):
     model = InterpretingLLM({"provided_name": parsed, "match_type": mode})
@@ -44,15 +44,15 @@ def test_gpt_interpretation_then_tool_then_review(spoken, parsed, mode):
 
 @pytest.mark.parametrize("arguments,review", [
     ({"provided_name": "Michael Smith", "match_type": "phonetic"}, True),
-    ({"provided_name": "Himanshu Gupta", "match_type": "exact"}, True),  # invented name
-    ({"provided_name": "Himanshu", "match_type": "first_name"}, False),  # reviewer rejects
-    ({"provided_name": "Himanshu", "match_type": "first_name", "expected_name": "Himanshu"}, True),
+    ({"provided_name": "Yashwant Vadlamani", "match_type": "exact"}, True),  # invented name
+    ({"provided_name": "Yashwant", "match_type": "first_name"}, False),  # reviewer rejects
+    ({"provided_name": "Yashwant", "match_type": "first_name", "expected_name": "Yashwant"}, True),
 ])
 def test_model_cannot_override_a_failed_tool_or_inject_expected_values(arguments, review):
     model = InterpretingLLM(arguments, review)
     agent = HCMVoiceAgent(settings=VALID, llm=model)
     agent.initialize_call({}, identity_record=RECORD)
-    assert agent.take_turn("Himanshu").action == "hang_up"
+    assert agent.take_turn("Yashwant").action == "hang_up"
 
 
 def test_model_normalizes_spoken_dob_without_seeing_expected_dob():
@@ -89,14 +89,14 @@ def test_terminal_loads_expected_identity_before_call(monkeypatch):
     monkeypatch.setattr(chat_demo, "identity_record_for_name", lambda name: RECORD)
     agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
     voice = MockVoiceInterface(agent)
-    voice.start_call({"name": "Himanshu Gupta"})
-    assert voice.send_message("Himanshu Gupta").phase == "verify_dob"
+    voice.start_call({"name": "Yashwant Vadlamani"})
+    assert voice.send_message("Yashwant Vadlamani").phase == "verify_dob"
     assert voice.send_message("January 2, 1990").identity == "confirmed"
 
 
 def test_record_lookup_matches_existing_demo_name():
-    record = identity_record_for_name("Himanshu Gupta")
-    assert record["name"] == "Himanshu Gupta" and record["date_of_birth"]
+    record = identity_record_for_name("Yashwant Vadlamani")
+    assert record["name"] == "Yashwant Vadlamani" and record["date_of_birth"]
 
 
 def test_missing_or_duplicate_records_fail_closed(tmp_path, monkeypatch):
@@ -115,11 +115,11 @@ def test_langchain_executes_tool_and_reviews_actual_result():
 
     from test_langgraph import ScriptedChatModel, approved, call
     model = ScriptedChatModel(replies=[
-        call("verify_full_name", provided_name="Himanshu", match_type="first_name"), approved(),
+        call("verify_full_name", provided_name="Yashwant", match_type="first_name"), approved(),
     ])
     agent = HCMVoiceAgent(settings=VALID, llm=LangChainLLM(model))
     agent.initialize_call({}, identity_record=RECORD)
-    assert agent.take_turn("Himanshu").phase == "verify_dob"
+    assert agent.take_turn("Yashwant").phase == "verify_dob"
     assert isinstance(model.seen[-1][-1], ToolMessage)
     assert json.loads(model.seen[-1][-1].content)["verified"] is True
 
@@ -131,7 +131,7 @@ def test_model_service_failure_ends_call():
     model.call_and_review_tool = unavailable
     agent = HCMVoiceAgent(settings=VALID, llm=model)
     agent.initialize_call({}, identity_record=RECORD)
-    turn = agent.take_turn("Himanshu")
+    turn = agent.take_turn("Yashwant")
     assert turn.action == "hang_up" and turn.end_reason == "Identity verification unavailable"
     assert agent.identity_gateway.audit_log[-1]["tool"] == "record_verification_failure"
 

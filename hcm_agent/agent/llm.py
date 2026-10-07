@@ -24,20 +24,24 @@ class LLM(Protocol):
 
 
 class LangChainLLM:
+    # Extra request options that make the provider return one JSON object (when it has such a mode).
+    json_options: dict = {}
+
     def __init__(self, model):
         self.model = model
         self.last_filter_categories: set[str] = set()
 
     def complete(self, system_prompt: str, messages: list, json_mode: bool = False, *, tools=()) -> Optional[str]:
         self.last_filter_categories = set()
+        options = self.json_options if json_mode else {}
         if json_mode:
             system_prompt += "\nReturn the requested JSON object, without Markdown."
         try:
             if tools:
-                result = run_agent(self.model, list(tools), system_prompt, messages)
+                result = run_agent(self.model, list(tools), system_prompt, messages, model_options=options)
                 response = result["messages"][-1]
             else:
-                response = self.model.invoke([SystemMessage(system_prompt), *messages])
+                response = self.model.invoke([SystemMessage(system_prompt), *messages], **options)
         except Exception as error:
             if "content_filter" not in str(error):
                 raise
@@ -57,12 +61,18 @@ class LangChainLLM:
         )
         result = run_agent(self.model, [identity_tool], system_prompt,
                            [{"role": "user", "content": json.dumps(payload)}],
-                           required_tool=identity_tool.name, max_rounds=1)
+                           required_tool=identity_tool.name, max_rounds=1, model_options=self.json_options)
         review = json.loads(result["messages"][-1].text)
         return isinstance(review, dict) and review.get("verified") is True
 
 
 class AzureOpenAILLM(LangChainLLM):
+    # Without JSON mode the model sometimes writes its reply in front of the JSON object, which would
+    # be read aloud and would hide the emergency assessment, sentiment and conversation state.
+    # Sent as extra_body so it also applies to requests that offer tools: LangChain's own
+    # response_format option refuses those unless every tool is declared strict.
+    json_options = {"extra_body": {"response_format": {"type": "json_object"}}}
+
     def __init__(self, settings: Settings):
         # Azure's existing /openai/v1 endpoint uses LangChain's standard ChatOpenAI.
         options = {"reasoning_effort": settings.azure_openai_reasoning_effort} if (

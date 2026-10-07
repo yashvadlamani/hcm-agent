@@ -52,8 +52,11 @@ components are not guessed; fuzzy DOB matching is not used.
 - `hcm_agent/tools/identity.py`: normalization and deterministic name/DOB rules, including
   the 0.75 phonetic threshold.
 - `hcm_agent/workflows/member_data.py`: selects a member record before the call.
-- `data/demo_members.json`: local demo dataset; it contains a record named Himanshu Gupta
-  and is classified in the file as synthetic demo data with one user-provided profile.
+- `data/demo_members.json`: local demo dataset; it contains a record named Yashwant Vadlamani
+  with a made-up date of birth for testing, and is classified in the file as synthetic demo data
+  with one user-provided profile.
+- A number or name with no member record does not use this flow: Clara confirms the patient by
+  name only, unless `MEMBER_RECORD_REQUIRED=true`.
 
 ## Suggested test sequence
 

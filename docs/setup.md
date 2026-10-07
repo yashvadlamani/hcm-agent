@@ -21,11 +21,19 @@ New to the project? Read the [Architecture](./architecture.md) overview first; i
 git clone https://github.com/yashvadlamani/hcm-agent.git
 cd hcm-agent
 python -m pip install -e ".[dev]"
-pytest                    # 84 tests, no keys needed
+pytest                    # no keys needed
 clara-chat demo           # a scripted conversation, no keys needed
 ```
 
 This adds three commands: `clara-chat` (talk to Clara in the terminal), `clara-call` (place a call) and `clara-server` (run the server locally). If PowerShell doesn't recognize them, reopen it.
+
+**If Windows blocks a `clara-*` command** ("An Application Control policy has blocked this file"): pip creates small unsigned launcher programs for these commands, and Windows Smart App Control can block them. Leave the protection on and run the same code through Python:
+
+| Blocked command | Use instead |
+|---|---|
+| `clara-chat interactive` (or `demo`, `guardrails`) | `python -m hcm_agent.cli.chat_demo interactive` |
+| `clara-call …` | `python -m hcm_agent.cli.place_call …` |
+| `clara-server` | `python -m hcm_agent.telephony.server` |
 
 ## 3. Configure
 
@@ -42,6 +50,7 @@ cp config/.env.example .env   # Windows PowerShell: copy config\.env.example .en
 | `PHONE_WEBHOOK_KEY` | Run `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `LIVE_VIEW_PASSWORD` | Any password; it protects the live dashboard |
 | `CLARA_BASE_URL`, `ALLOWED_CALL_NUMBERS`, `MAX_CALLS_PER_HOUR` | [Step 6](#6-deploy-the-clara-server) and [Step 7](#7-deploy-the-call-request-function) |
+| `MEMBER_DATA_PATH`, `MEMBER_RECORD_REQUIRED` (both optional) | [Member records](#member-records) |
 
 ## 4. Choose the model
 
@@ -62,7 +71,28 @@ Clara sends `reasoning_effort=minimal` by default, which keeps gpt-5 replies aro
 
 **Claude:** set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`, and optionally `ANTHROPIC_MODEL` (default `claude-opus-5`).
 
-Try it: `clara-chat interactive` (you type as the patient) or `clara-chat guardrails` (sends risky messages to check the guardrails).
+Try it: `clara-chat interactive` (you type as the patient) or `clara-chat guardrails` (sends risky messages to check the guardrails). In the interactive chat, enter a patient name from the member data to test name and date-of-birth verification, or any other name to test the name-only opening.
+
+Both models are reached through LangChain (`langchain-openai`, `langchain-anthropic`), and tool use runs on LangGraph; see [Workflow and tools](./architecture/workflow-and-tools.md).
+
+### Member records
+
+A member record tells Clara who a phone number belongs to. Numbers with a record get the fuller flow; numbers without one are called from their call request alone.
+
+| | With a member record | Without one |
+|---|---|---|
+| Before dialing | Consent, Do-Not-Call, calling window and weekly attempt limit are checked. The check uses the model | Allow-list and hourly limit only |
+| Opening | Full name, then date of birth, checked against the record. A mismatch ends the call | *"May I speak with {name}, please?"*; if someone else answers, Clara notes a good time to call back |
+| During the call | The model can use the member tools | The model replies from the call request alone |
+
+Records live in [`data/demo_members.json`](../data/demo_members.json), which is packaged with both apps. Each member has a `member_id`, `name`, `date_of_birth` (`YYYY-MM-DD`), `phone`, a `communication` block (language, time zone, calling window) and an `outreach` block (consent, Do-Not-Call, attempt limits). The file is demo data in a public repository: use made-up dates of birth, as the first record does, and never real member data.
+
+| Setting | Effect |
+|---|---|
+| `MEMBER_DATA_PATH` | Read member records from this file instead, for example a private file kept outside git |
+| `MEMBER_RECORD_REQUIRED=true` | Refuse to call any number without a member record. Off by default |
+
+A change to `data/` on `main` redeploys both apps.
 
 ## 5. Get a phone number
 
@@ -140,6 +170,8 @@ ALLOWED_CALL_NUMBERS=+1XXXXXXXXXX
 MAX_CALLS_PER_HOUR=10
 ```
 
+The function also needs the model settings from [Step 4](#4-choose-the-model), because the pre-call policy check for [member records](#member-records) uses the model. The script copies them from `.env`, with the key stored in Key Vault. Without them, an upload for a number that has a member record lands in `failed/` with *"function is not configured for member calls"*; numbers without a record are unaffected.
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\hcm_agent\deploy\deploy_function.ps1 -FunctionApp <function-app> -ClaraAppName <app>
 ```
@@ -151,8 +183,8 @@ Re-run it whenever these settings change. It's safe to repeat.
 | Workflow | What it does | Runs when |
 |---|---|---|
 | [`ci.yml`](../.github/workflows/ci.yml) | Lint and tests | Every push and pull request |
-| [`deploy-server.yml`](../.github/workflows/deploy-server.yml) | Deploys the Clara server, after lint and tests pass | A merge to `main` changes `hcm_agent/` (except the function) or `requirements.txt` |
-| [`deploy-function.yml`](../.github/workflows/deploy-function.yml) | Deploys the call-request function | A merge to `main` changes `hcm_agent/` |
+| [`deploy-server.yml`](../.github/workflows/deploy-server.yml) | Deploys the Clara server, after lint and tests pass | A merge to `main` changes `hcm_agent/` (except the function), `data/` or `requirements.txt` |
+| [`deploy-function.yml`](../.github/workflows/deploy-function.yml) | Deploys the call-request function | A merge to `main` changes `hcm_agent/` or `data/` |
 
 Watch them in the repository's **Actions** tab, or run one by hand with **Run workflow**. Workflows deploy code only; settings and secrets still come from `.env` through the deploy scripts.
 
@@ -179,7 +211,7 @@ clara-call --to +1XXXXXXXXXX --name <FirstName>
 
 This calls through `CLARA_BASE_URL`; `--url` overrides it. With a trial number, `--to` must be a verified number. If the server is asleep, `clara-call` wakes it first, which takes up to a minute.
 
-**On the phone:** Clara asks *"May I speak with {name}, please?"* After you speak, pause for about 2 seconds. Try:
+**On the phone:** for a number with no member record, Clara asks *"May I speak with {name}, please?"* For a number in the member data (`data/demo_members.json`, or `MEMBER_DATA_PATH`), she asks for your full name and then your date of birth instead, and the call is first checked against that member's consent, Do-Not-Call and calling-window settings. `MEMBER_RECORD_REQUIRED=true` refuses numbers that have no member record. After you speak, pause for about 2 seconds. Try:
 
 | Say | Clara should |
 |---|---|
@@ -230,4 +262,4 @@ request.json ──upload──▶ call-requests/incoming/ ──Event Grid─�
 
 3. **Check the result.** Within about a minute the phone rings, and the request moves to `processed/` (with the ACS call connection ID) or `failed/` (with the reason).
 
-The function places a call only when the file is valid JSON under 10 KB, the number is in `ALLOWED_CALL_NUMBERS`, and fewer than `MAX_CALLS_PER_HOUR` calls were placed in the last hour. Each file is processed once. `incoming/` always holds a `README.txt` that keeps the folder visible between uploads; it never triggers a call.
+The function places a call only when the file is valid JSON under 10 KB, the number is in `ALLOWED_CALL_NUMBERS`, and fewer than `MAX_CALLS_PER_HOUR` calls were placed in the last hour. If the number has a [member record](#member-records), the call must also pass that member's consent, Do-Not-Call, calling-window and attempt-limit checks. Each file is processed once. `incoming/` always holds a `README.txt` that keeps the folder visible between uploads; it never triggers a call.

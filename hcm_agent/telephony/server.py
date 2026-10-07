@@ -197,7 +197,7 @@ def on_speech(call_id: str, data: dict) -> None:
             kind = "emergency"
         elif turn.action == "hang_up":
             kind = "goodbye"
-        elif turn.phase in ("verify_name", "verify_dob") or turn.identity == "confirmed":
+        elif turn.phase in ("verify_name", "verify_dob", "verify", "callback") or turn.identity == "confirmed":
             kind = "opening"
         else:
             kind = "closing" if turn.phase == "feedback" else "reply"

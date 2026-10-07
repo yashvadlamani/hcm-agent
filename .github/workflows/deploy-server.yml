@@ -13,6 +13,7 @@ on:
       - "hcm_agent/**"
       - "!hcm_agent/azure_functions/**"   # the function has its own workflow
       - "requirements.txt"
+      - "data/**"                         # member records are packaged with the app
       - ".github/workflows/deploy-server.yml"
   workflow_dispatch:
 

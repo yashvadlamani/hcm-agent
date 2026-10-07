@@ -4,13 +4,13 @@
   "tenant_id": "demo-health-plan",
   "members": [
     {
-      "member_id": "demo-himanshu-gupta",
-      "name": "Himanshu Gupta",
-      "date_of_birth": "1991-07-28",
-      "phone": "+19794223275",
+      "member_id": "demo-yashwant-vadlamani",
+      "name": "Yashwant Vadlamani",
+      "date_of_birth": "1990-01-01",
+      "phone": "+17044305315",
       "communication": {
         "language": "en-US",
-        "local_timezone": "America/Chicago",
+        "local_timezone": "America/New_York",
         "calling_window": {"start_hour": 0, "end_hour": 24}
       },
       "outreach": {

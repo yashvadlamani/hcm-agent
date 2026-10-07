@@ -27,7 +27,8 @@ class MockVoiceInterface:
         record = identity_record_for_name(patient_context.get("name", ""))
         self.agent.initialize_call(patient_context, identity_record=record)
         if not record:
-            print("No unique member record found. Add the member to MEMBER_DATA_PATH before testing verification.")
+            print("No member record for this name: Clara will confirm the name only. To test name and "
+                  "date-of-birth verification, use a member from MEMBER_DATA_PATH (default data/demo_members.json).")
         print("\n" + "="*70)
         print("📞 VOICE CALL STARTED")
         print(f"Patient: {patient_context.get('name', 'Unknown')}")

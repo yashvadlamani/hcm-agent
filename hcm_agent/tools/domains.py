@@ -240,7 +240,8 @@ def defend_content(arguments: dict[str, Any]) -> dict[str, Any]:
     """Treat retrieved and spoken text as data, flagging common instruction-injection phrases."""
     text = str(arguments.get("text", "")).lower()
     injected = any(phrase in text for phrase in ("ignore previous instructions", "system prompt", "reveal secrets"))
-    return {"safe": not injected, "injection_detected": injected, "sanitized_text": str(arguments.get("text", ""))[:1000]}
+    return {"safe": not injected, "injection_detected": injected,
+            "sanitized_text": str(arguments.get("text", ""))[:1000]}
 
 
 def operational_control(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -322,10 +323,14 @@ def register_domain_tools() -> list[ToolDefinition]:
         create_member_request: ("request_callback", "request_appointment"),
         confirm_member_request: ("confirm_request_status",),
         safety_escalation: ("create_clinical_review_task", "route_member_distress", "create_safety_follow_up"),
-        access_control: ("authorize_tool_call", "enforce_member_scope", "apply_tool_allowlist", "enforce_role_or_tenant_scope"),
-        protect_phi: ("minimize_prompt_context", "redact_for_logs", "classify_sensitive_data", "apply_retention_policy"),
-        defend_content: ("detect_prompt_injection", "sanitize_untrusted_content", "validate_rag_source", "apply_output_dlp"),
-        operational_control: ("audit_event", "record_policy_decision", "raise_security_incident", "apply_rate_limit", "apply_circuit_breaker"),
+        access_control: ("authorize_tool_call", "enforce_member_scope", "apply_tool_allowlist",
+                         "enforce_role_or_tenant_scope"),
+        protect_phi: ("minimize_prompt_context", "redact_for_logs", "classify_sensitive_data",
+                      "apply_retention_policy"),
+        defend_content: ("detect_prompt_injection", "sanitize_untrusted_content", "validate_rag_source",
+                         "apply_output_dlp"),
+        operational_control: ("audit_event", "record_policy_decision", "raise_security_incident",
+                              "apply_rate_limit", "apply_circuit_breaker"),
     }
     for handler, names in groups.items():
         tools.extend(_definitions(names, handler))

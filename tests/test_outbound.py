@@ -6,8 +6,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from hcm_agent.telephony.outbound import (
-    CallNotAuthorized,
     CallNotAllowed,
+    CallNotAuthorized,
     check_allowed,
     decode_call_context,
     encode_call_context,
@@ -15,8 +15,8 @@ from hcm_agent.telephony.outbound import (
     place_policy_authorized_call,
     to_e164,
 )
-from test_config import VALID
 from hcm_agent.workflows import OutreachResult
+from test_config import VALID
 
 
 class FakeACS:
@@ -80,6 +80,28 @@ def test_call_context_caps_drivers():
 @pytest.mark.parametrize("value", ["", "not-base64!", "e30", "WyJhIl0"])  # "", junk, {}, ["a"]
 def test_malformed_call_context_falls_back(value):
     assert decode_call_context(value) == ("there", [], "")
+
+
+def test_a_number_without_a_member_record_is_called_from_its_request_alone(monkeypatch):
+    from hcm_agent.telephony import outbound
+    monkeypatch.setattr(outbound, "identity_record_for_phone", lambda phone: {})
+    monkeypatch.setattr(outbound, "wake_server", lambda *args, **kwargs: None)
+    acs = FakeACS()
+    call_id = outbound.place_member_call(VALID, "https://clara.example.net", "(555) 555-0100", "Yash",
+                                         ["Missed refills"], reason="likelihood of high cost", client=acs)
+    assert call_id == "call-fake-123"  # no model and no pre-call policy are needed without a record
+    [context] = parse_qs(urlparse(acs.created[0]["callback_url"]).query)["ctx"]
+    assert decode_call_context(context) == ("Yash", ["Missed refills"], "likelihood of high cost")
+
+
+def test_a_number_without_a_member_record_is_refused_when_records_are_required(monkeypatch):
+    from hcm_agent.telephony import outbound
+    monkeypatch.setattr(outbound, "identity_record_for_phone", lambda phone: {})
+    acs = FakeACS()
+    strict = dataclasses.replace(VALID, member_record_required=True)
+    with pytest.raises(CallNotAllowed, match="member record"):
+        outbound.place_member_call(strict, "https://clara.example.net", "(555) 555-0100", client=acs)
+    assert acs.created == []
 
 
 def test_place_call_refuses_before_contacting_acs():

@@ -147,11 +147,51 @@ def test_identity_failure_plays_goodbye_then_disconnects(client, acs, model, wro
     assert acs.last() == ("hang_up",)
 
 
-def test_missing_server_member_record_ends_call(client, acs, monkeypatch):
+def test_missing_server_member_record_ends_call_when_records_are_required(client, acs, model, monkeypatch):
+    strict = dataclasses.replace(VALID, member_record_required=True)
+    monkeypatch.setattr(server, "HCMVoiceAgent", lambda **_: HCMVoiceAgent(settings=strict, llm=model))
     monkeypatch.setattr(server, "identity_record_for_phone", lambda phone: {})
     connect(client, confirm=False)
     speak(client, "Yash Patel")
     assert acs.last()[0] == "say" and "couldn't verify" in acs.last()[1]
+
+
+# ---- Calls placed from a call request alone (no member record): confirm the patient by name ----
+
+@pytest.fixture
+def no_record(client, monkeypatch):
+    monkeypatch.setattr(server, "identity_record_for_phone", lambda phone: {})
+    return client
+
+
+def test_without_a_record_the_opening_asks_for_the_patient_by_name(no_record, acs):
+    assert connect(no_record, confirm=False) == 200
+    action, text, target = acs.last()
+    assert action == "listen" and target == PATIENT
+    assert text == ("Hi, I'm Clara, a virtual assistant from your health insurance care team. "
+                    "May I speak with Yash, please?")
+
+
+def test_without_a_record_a_confirmed_patient_hears_the_reason_and_talks_to_clara(no_record, acs, model):
+    connect(no_record, confirm=False)
+    speak(no_record, "Yes, this is Yash.")
+    assert acs.last()[1].startswith("Thanks, Yash. I'm calling to check in") and model.requests == []
+    patient = [e["text"] for e in live_feed.history() if e["type"] == "patient"]
+    assert patient == ["Yes, this is Yash."]  # nothing to mask: no date of birth is asked for
+    speak(no_record, "I'm feeling stressed.")
+    assert acs.last() == ("listen", REPLY, PATIENT) and len(model.requests) == 1
+
+
+def test_without_a_record_someone_else_answering_leads_to_a_noted_callback_time(no_record, acs):
+    connect(no_record, confirm=False)
+    speak(no_record, "No, this is John.")
+    assert acs.last() == ("listen", "No problem. What would be a good time to reach Yash?", PATIENT)
+    speak(no_record, "Tomorrow after 5.")
+    action, text, context = acs.last()
+    assert action == "say" and "noted" in text and context == "goodbye"
+    callback = next(e for e in live_feed.history() if e["type"] == "callback")
+    assert callback["time"] == "Tomorrow after 5." and callback["spoke_with"] == "John"
+    assert event_types()[-1] == "call_ended"
 
 
 def test_reply_is_spoken_and_clara_listens_again(client, acs):

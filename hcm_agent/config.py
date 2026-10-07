@@ -36,6 +36,9 @@ class Settings:
     clara_base_url: str
     allowed_call_numbers: tuple[str, ...]
     max_calls_per_hour: int
+    # True: only people with a member record can be called, and every call verifies name and date of birth.
+    # False (default): a number without a member record is still called from its call request alone.
+    member_record_required: bool = False
 
 
 def load() -> Settings:
@@ -57,6 +60,7 @@ def load() -> Settings:
         clara_base_url=env("CLARA_BASE_URL", "").rstrip("/"),
         allowed_call_numbers=tuple(n.strip() for n in env("ALLOWED_CALL_NUMBERS", "").split(",") if n.strip()),
         max_calls_per_hour=int(env("MAX_CALLS_PER_HOUR", "10")),
+        member_record_required=env("MEMBER_RECORD_REQUIRED", "").strip().lower() in ("1", "true", "yes"),
     )
 
 

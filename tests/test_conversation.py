@@ -1,5 +1,6 @@
 """Tests for one conversation's flow: emergencies, promises, sentiment and the closing sequence."""
 
+import dataclasses
 import json
 
 import pytest
@@ -47,6 +48,20 @@ class ScriptedLLM:
     def complete(self, system_prompt, messages, json_mode=False, **kwargs):
         self.requests.append({"system": system_prompt, "messages": list(messages), "json_mode": json_mode})
         return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
+
+
+STRICT = dataclasses.replace(VALID, member_record_required=True)
+
+
+def request_only_agent(*responses, name="Maria", verified=True):
+    """An agent for a call placed from a call request alone, with no member record."""
+    llm = ScriptedLLM(*responses)
+    agent = HCMVoiceAgent(settings=VALID, llm=llm)
+    agent.initialize_call({"name": name, "risk_drivers": ["HbA1c above 7.5%"]})
+    agent.start_call()
+    if verified:
+        agent.phase = "conversation"
+    return agent, llm
 
 
 def new_agent(*responses, name="Maria", verified=True):
@@ -364,7 +379,7 @@ def test_wrong_or_incomplete_dob_ends_call(answer):
 
 
 def test_missing_record_does_not_bypass_verification():
-    agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
+    agent = HCMVoiceAgent(settings=STRICT, llm=ScriptedLLM())
     agent.initialize_call({"name": "Maria Lopez"})
     assert agent.phase == "verify_name"
     assert agent.take_turn("Maria Lopez").action == "hang_up"
@@ -374,6 +389,101 @@ def test_emergency_during_the_opening_still_wins():
     agent, _ = new_agent(verified=False)
     turn = agent.take_turn("Help, my husband is having chest pain!")
     assert turn.emergency is not None and turn.action == "hang_up"
+
+
+# ---- Opening without a member record: confirming who answered by name ----
+
+def test_opening_asks_for_the_patient_without_mentioning_health():
+    agent, _ = request_only_agent(verified=False)
+    opening = agent.conversation_history[-1]["content"]
+    assert opening == ("Hi, I'm Clara, a virtual assistant from your health insurance care team. "
+                       "May I speak with Maria, please?")
+    assert "diabetes" not in opening.lower()
+
+
+@pytest.mark.parametrize("answer", ["Yes, this is Maria.", "Speaking.", "Yeah, that's me", "This is Maria", "Uh huh"])
+def test_confirmed_patient_moves_on_to_the_check_in(answer):
+    agent, llm = request_only_agent(verified=False)
+    turn = agent.take_turn(answer)
+    assert turn.identity == "confirmed" and turn.phase == "conversation" and turn.action == "listen"
+    assert turn.reply.startswith("Thanks, Maria. I'm calling to check in on how you're doing with your diabetes")
+    assert llm.requests == []  # no model needed for the opening
+
+
+def test_someone_else_is_asked_for_a_good_time_then_the_time_is_noted():
+    agent, llm = request_only_agent(verified=False)
+    turn = agent.take_turn("No, this is John.")
+    assert turn.identity == "not_available" and turn.spoke_with == "John" and turn.action == "listen"
+    assert turn.reply == "No problem. What would be a good time to reach Maria?"
+    assert "diabetes" not in turn.reply.lower()  # nothing health-related said to someone else
+
+    final = agent.take_turn("Try tomorrow after 5 pm.")
+    assert final.action == "hang_up" and final.callback_time == "Try tomorrow after 5 pm."
+    assert final.end_reason == "Patient not available"
+    assert "noted" in final.reply and "call" not in final.reply.lower()  # no promise to call back
+    summary = agent.end_call()
+    assert summary["callback_time"] == "Try tomorrow after 5 pm." and summary["spoke_with"] == "John"
+    assert llm.requests == []
+
+
+@pytest.mark.parametrize("heard", ["Yes, this is Yesh.", "Yes, this is Josh.", "This is Yash", "It's Yosh"])
+def test_misheard_names_still_confirm_the_patient(heard):
+    """Found on a real call: speech recognition heard "Yes, this is Yesh" for "Yes, this is Yash"."""
+    agent, _ = request_only_agent(name="Yash", verified=False)
+    turn = agent.take_turn(heard)
+    assert turn.identity == "confirmed" and turn.phase == "conversation"
+
+
+def test_a_clearly_different_name_is_someone_else():
+    agent, _ = request_only_agent(name="Yash", verified=False)
+    assert agent.take_turn("This is Michael.").identity == "not_available"
+
+
+def test_a_time_given_up_front_is_noted_without_asking_again():
+    agent, _ = request_only_agent(verified=False)
+    turn = agent.take_turn("She's not here right now, she gets back around 6 tonight.")
+    assert turn.action == "hang_up" and turn.callback_time.endswith("around 6 tonight.")
+
+
+def test_a_relative_naming_the_patient_is_not_mistaken_for_them():
+    agent, _ = request_only_agent(verified=False)
+    turn = agent.take_turn("No, this is Maria's husband.")
+    assert turn.identity == "not_available" and turn.spoke_with is None
+    assert "good time to reach Maria" in turn.reply
+
+
+def test_wrong_number_ends_politely():
+    agent, _ = request_only_agent(verified=False)
+    turn = agent.take_turn("I think you have the wrong number.")
+    assert turn.identity == "wrong_number" and turn.action == "hang_up"
+    assert turn.end_reason == "Wrong number" and "Maria" not in turn.reply
+
+
+def test_unclear_answer_asks_again_then_moves_on():
+    agent, _ = request_only_agent(verified=False)
+    first = agent.take_turn("Hello?")
+    assert first.reply == "Sorry, I didn't catch that. Am I speaking with Maria?" and first.phase == "verify"
+    second = agent.take_turn("What's this about?")
+    assert second.phase == "callback" and "good time to reach Maria" in second.reply
+
+
+def test_without_a_name_the_call_starts_with_the_check_in():
+    agent = HCMVoiceAgent(settings=VALID, llm=ScriptedLLM())
+    agent.initialize_call({"name": "there"})
+    assert agent.phase == "conversation" and "diabetes management" in agent.start_call()
+
+
+def test_without_a_record_the_model_is_asked_directly_with_no_member_tools():
+    agent, llm = request_only_agent(turn_json("What's been hardest?"))
+    assert agent.take_turn("I'm stressed about refills.").reply == "What's been hardest?"
+    assert llm.requests[0]["json_mode"] is True and "tools" not in llm.requests[0]
+
+
+def test_a_reply_written_in_front_of_the_json_is_spoken_without_the_json():
+    raw = ('That sounds hard. What changed?\n{"emergency": {"detected": false, "type": "none", "reason": ""}, '
+           '"sentiment": 0.3, "conversation_state": "ongoing"}')
+    assert parse_model_output(raw) == {"reply": "That sounds hard. What changed?", "emergency": None,
+                                       "sentiment": 0.3, "state": "ongoing"}
 
 
 # ---- The reason for the call and personal replies ----

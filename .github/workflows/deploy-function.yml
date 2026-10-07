@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - "hcm_agent/**"
+      - "data/**"                         # member records are packaged with the app
       - ".github/workflows/deploy-function.yml"
   workflow_dispatch:
 

@@ -3,6 +3,7 @@ langgraph>=1,<2
 langchain-openai>=1,<2
 langchain-anthropic>=1,<2
 python-dotenv
+tzdata; platform_system == "Windows"
 azure-communication-callautomation
 flask
 gunicorn

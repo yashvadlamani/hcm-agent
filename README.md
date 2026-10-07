@@ -28,13 +28,14 @@ More detail: [Architecture](./docs/architecture.md).
 | Replies personalized to the patient: their own words, the reason for the call and their risk drivers (Azure OpenAI or Claude) | ✅ Live |
 | Safety guardrails: no diagnoses, no medical advice, no medication changes, no promises | ✅ Live |
 | Emergency detection from context (clinical knowledge) plus keywords; 911 or the 988 crisis line | ✅ Live |
-| Identity check before anything health-related; callback time noted if someone else answers | ✅ Live |
+| Identity check before anything health-related: name and date of birth for people with a member record, name confirmation otherwise | ✅ Live |
 | Natural call endings ("anything else?") with a feedback-form opt-in | ✅ Live |
 | Live score (0–1) of how satisfied the patient seems with the call, on the dashboard | ✅ Live |
 | Start calls by uploading a JSON file (Azure Functions + Event Grid) | ✅ Live |
 | Live call dashboard with guardrail and emergency alerts | ✅ Live |
 | Secrets in Azure Key Vault; automated tests and deploys (GitHub Actions) | ✅ Live |
 | Policy-gated outreach workflow (consent, DNC, calling hours, authorization) | ✅ Reference implementation |
+| Two call modes: member record (name and date-of-birth verification, member tools) or call request alone (name confirmation, callback time) | ✅ Live |
 | Care-manager escalation and follow-up tasks | 🚧 Planned |
 | Answers grounded in approved clinical content (RAG) | 🚧 Planned |
 | HIPAA-ready production environment (BAA, purchased number, audit logging) | 🚧 Planned |
@@ -56,7 +57,7 @@ More detail: [Architecture](./docs/architecture.md).
 git clone https://github.com/yashvadlamani/hcm-agent.git && cd hcm-agent
 python -m pip install -e ".[dev]"     # app, test tools and the clara-* commands
 cp config/.env.example .env           # fill in your keys and phone settings
-pytest                                # 84 tests, no keys or network needed
+pytest                                # no keys or network needed
 clara-chat demo                       # a sample conversation in the terminal
 ```
 

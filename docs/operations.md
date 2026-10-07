@@ -12,7 +12,8 @@ Running Clara day to day: the environment, health checks, turning it on and off,
 | Call-request function | `clara-hcm-agent-calls` |
 | Call-request storage | Container `call-requests`, with folders `incoming/`, `processed/` and `failed/` |
 | Phone calls | Azure Communication Services `clara-acs-<id>`, trial number |
-| Model | Azure OpenAI deployment `clara-chat` (`gpt-5-mini`) |
+| Model | Azure OpenAI deployment `clara-chat` (`gpt-5-mini`), used by the server and by the function's pre-call check |
+| Member records | `data/demo_members.json`, packaged with both apps (or the file named by `MEMBER_DATA_PATH`) |
 | Secrets | Key Vault `clara-kv-<id>` |
 | Hosting tier | App Service Free (F1) |
 
@@ -98,6 +99,9 @@ Start with the server log (see [Logs](#logs)).
 | The phone rings but Clara never speaks | The server didn't receive ACS's events: it's off, starting, or the URL is wrong | Check that `/` loads; run `start.ps1`. The log should show `ACS CallConnected` |
 | Clara speaks but never hears you (`RecognizeFailed` in the log) | ACS can't reach the speech service | Check `ACS_COGNITIVE_SERVICES_ENDPOINT`, and that the ACS identity has **Cognitive Services User** on the AI resource |
 | *"I'm having trouble connecting right now"* | The model request failed | Check the `AZURE_OPENAI_*` settings (or `ANTHROPIC_API_KEY`), re-run `deploy.ps1`, and check the log |
+| Clara asks for a full name and date of birth | The number has a member record | Expected. Answer with the name and date of birth in the record |
+| *"I couldn't verify your identity"* and the call ends | The name or date of birth didn't match the member record, or `MEMBER_RECORD_REQUIRED` is on and the number has no record | Check the record in the member data; speech recognition can mishear dates, so say month, day and year clearly |
+| *"I'm having trouble verifying your identity right now"* | The model request behind the identity check failed | Same as *"trouble connecting"* above |
 | Clara goes silent mid-call | The server restarted (for example, a deploy) | Call again; don't merge to `main` during test calls |
 | The call ends after exactly 5 minutes | Trial number limit | Keep test calls short, or buy a number |
 | `clara-call` says the server didn't respond | The app is stopped or failed to start | Run `start.ps1`, then check the log |
@@ -107,6 +111,9 @@ Start with the server log (see [Logs](#logs)).
 | Symptom | Fix |
 |---|---|
 | The file lands in `failed/` | Read the reason in the file. Usually the number isn't in `ALLOWED_CALL_NUMBERS` |
+| `failed/` says *"function is not configured for member calls"* | The number has a member record, and the function has no model settings for the pre-call check. Re-run `deploy_function.ps1` |
+| `failed/` gives a policy reason (consent, do-not-call, calling window, attempt limit) | The member record doesn't allow the call right now. Check that member's `outreach` and `communication` settings |
+| `failed/` says *"No unique member record exists for this phone number"* | `MEMBER_RECORD_REQUIRED` is on and the number isn't in the member data (or appears twice) |
 | The file stays in `incoming/` | Check **Function app → call_request → Invocations**; re-run `deploy_function.ps1` to recreate the trigger |
 | Nothing happens | The file must be in `incoming/` and end in `.json` |
 
@@ -122,6 +129,7 @@ Start with the server log (see [Logs](#logs)).
 | A GitHub deploy fails with an authentication error | Re-run the deploy script with `-PublishProfilePath` and update the GitHub secret |
 | `az login` is blocked by "security defaults" | Use `az login` (browser sign-in) rather than `--use-device-code` |
 | A script is blocked by execution policy | Use `powershell -ExecutionPolicy Bypass -File …` |
+| *"An Application Control policy has blocked this file"* on a `clara-*` command | Run it through Python instead, for example `python -m hcm_agent.cli.chat_demo interactive`; see [Setup](./setup.md#2-install) |
 
 ### Live dashboard
 

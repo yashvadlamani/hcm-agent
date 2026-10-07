@@ -13,5 +13,7 @@ Example request.json:
 Only "to" is required. "for" is the reason for the call: diabetes management (the default),
 likelihood of high cost, medication adherence, readmission risk, care gaps, or your own words.
 Up to 5 risk drivers, each at most 100 characters. Only numbers in ALLOWED_CALL_NUMBERS are called.
+If the number has a member record, the call must also pass that member's consent, do-not-call,
+calling-window and attempt-limit checks, and Clara verifies name and date of birth on the call.
 
 This README keeps the incoming/ folder visible. Leave it here; it never triggers a call.

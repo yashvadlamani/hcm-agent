@@ -34,7 +34,10 @@ class CallNotAuthorized(ValueError):
 
 def place_member_call(settings: Settings, base_url: str, to: str, name: str = "there",
                       risk_drivers=None, *, reason="", on_wait=None, llm=None, client=None) -> str:
-    """CLI/Function entry point: authorize the stored member, then let GPT invoke the ACS tool."""
+    """CLI/Function entry point: authorize the stored member, then let GPT invoke the ACS tool.
+
+    A number with no member record is called from its call request alone (the allow-list still
+    applies), unless MEMBER_RECORD_REQUIRED is set."""
     from threading import Lock
 
     from langchain_core.tools import tool
@@ -45,7 +48,9 @@ def place_member_call(settings: Settings, base_url: str, to: str, name: str = "t
     check_allowed(settings, to)
     member = identity_record_for_phone(to)
     if not member:
-        raise CallNotAllowed("No unique member record exists for this phone number")
+        if settings.member_record_required:
+            raise CallNotAllowed("No unique member record exists for this phone number")
+        return place_call(settings, base_url, to, name, risk_drivers, client=client, on_wait=on_wait, reason=reason)
     llm = llm or create_llm(settings)
     policy = CareOutreachGraph(llm=llm).pre_call(outreach_request_from_member(member, member["tenant_id"]))
     if not policy.allowed:
