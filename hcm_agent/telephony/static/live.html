@@ -104,7 +104,7 @@
 </header>
 <main>
   <aside>
-    <h2>Calls this session</h2>
+    <h2>Recent calls</h2>
     <div id="call-list"></div>
   </aside>
   <section>
@@ -124,8 +124,8 @@
     </div>
     <div class="timeline" id="timeline">
       <div class="empty">
-        <strong>Waiting for a call…</strong>
-        <p>Calls appear here the moment they connect. Start one from the project folder:</p>
+        <strong>No live or saved calls yet</strong>
+        <p>New calls appear immediately. Completed calls made after transcript history was enabled appear here after a server restart.</p>
         <code id="start-command">clara-call --url https://&lt;your-app&gt;.azurewebsites.net --to +1XXXXXXXXXX --name &lt;FirstName&gt;</code>
       </div>
     </div>
@@ -158,13 +158,18 @@ const mood = (v) => v < 0.35 ? "negative" : v > 0.65 ? "positive" : "neutral";
 const MOOD_LABEL = { negative: "Dissatisfied", neutral: "Neutral", positive: "Satisfied" };
 const arrow = (change) => change > 0 ? "▲" : change < 0 ? "▼" : "";
 
-function handle(event) {
-  if (event.boot !== bootId) {
+function handle(event, historical = false) {
+  if (!historical && event.boot !== bootId) {
     bootId = event.boot; lastEventId = 0;
-    calls.clear(); selected = null; userPicked = false;
+    // Keep durable completed calls when a server is restarted; only live-session
+    // events are reset by the new boot id.
+    for (const [id, call] of calls) if (call.status === "live") calls.delete(id);
+    selected = null; userPicked = false;
   }
-  if (event.id <= lastEventId) return;
-  lastEventId = event.id;
+  if (!historical) {
+    if (event.id <= lastEventId) return;
+    lastEventId = event.id;
+  }
   let call = calls.get(event.call);
   if (!call) {
     call = { name: "Unknown caller", drivers: [], reason: "", started: event.ts, ended: null, status: "live", events: [],
@@ -348,7 +353,22 @@ function connect() {
     $("conn-text").textContent = "Disconnected, retrying…";
   };
 }
-connect();
+
+async function loadHistory() {
+  try {
+    const response = await fetch("/live/history");
+    if (!response.ok) return;
+    const history = await response.json();
+    // Server returns newest first; ingest oldest first for a natural initial selection.
+    for (const call of (history.calls || []).slice().reverse()) {
+      for (const event of call.events || []) handle(event, true);
+    }
+  } catch (_) {
+    // The live stream remains useful if local history is unavailable.
+  }
+}
+
+loadHistory().finally(connect);
 </script>
 </body>
 </html>

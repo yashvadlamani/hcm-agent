@@ -9,11 +9,17 @@ or approved-content store).
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import re
 from secrets import token_urlsafe
 from typing import Any
 
 from .contracts import ToolDefinition
 from .identity import verify_dob, verify_full_name
+from .playbook import PLAYBOOK_ID, PLAYBOOK_STATUS, retrieve_playbook
+from .policy import POLICY_CONTEXT, POLICY_ID, policy_document_available, retrieve_policy
+from .providers import search_provider_directory
+from .response_latency import response_latency_circuit
+from .scheduling import request_demo_appointment
 
 CARE_SCOPE = frozenset({"care_outreach"})
 IDENTITY_SCOPE = frozenset({"care_outreach", "member_verify"})
@@ -150,73 +156,97 @@ def record_verification_failure(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def get_safe_outreach_brief(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return only member-facing purpose and approved goals, never a complete care record."""
-    return {"purpose": arguments.get("purpose", "check in"),
-            "risk_drivers": list(arguments.get("risk_drivers", []))[:5],
+    """Return bounded outreach context and follow-up prompts, not a complete care record."""
+    drivers = arguments.get("outreach_risk_drivers", [])
+    drivers = drivers if isinstance(drivers, list) else []
+    safe_drivers = [str(item)[:160] for item in drivers if isinstance(item, str) and item.strip()][:5]
+    follow_up = arguments.get("care_follow_up_plan", [])
+    follow_up = follow_up if isinstance(follow_up, list) else []
+    safe_follow_up = [str(item)[:200] for item in follow_up if isinstance(item, str) and item.strip()][:5]
+    return {"purpose": str(arguments.get("outreach_purpose", "check in"))[:120],
+            "risk_drivers": safe_drivers,
+            "care_team_record": str(arguments.get("care_team_record", ""))[:700],
+            "follow_up_plan": safe_follow_up,
+            "data_status": arguments.get("outreach_data_status", "not_configured"),
             "member_facing": True}
 
 
 def get_approved_goals(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return the currently approved care-management goals supplied by a source system."""
-    return {"goals": list(arguments.get("goals", []))[:5], "approved": True}
+    """Return bounded goals and distinguish demo examples from source-approved member goals."""
+    goals = arguments.get("care_goals", [])
+    goals = goals if isinstance(goals, list) else []
+    safe_goals = [str(item)[:200] for item in goals if isinstance(item, str) and item.strip()][:5]
+    return {"goals": safe_goals,
+            "available": bool(safe_goals),
+            "approved": arguments.get("goals_approved") is True,
+            "data_status": arguments.get("goals_data_status", "not_configured")}
 
 
-def get_recent_outreach_summary(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return a bounded, non-clinical summary of prior outreach."""
-    return {"summary": str(arguments.get("summary", "No recent outreach summary."))[:500]}
+def search_diabetes_playbook(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Retrieve semantically relevant playbook passages for the model to review and answer from."""
+    query = str(arguments.get("text") or arguments.get("query") or "")
+    results = retrieve_playbook(query, llm=arguments.get("_retrieval_llm"))
+    return {
+        "playbook_id": PLAYBOOK_ID,
+        "playbook_status": PLAYBOOK_STATUS,
+        "production_approved": False,
+        "retriever": "chroma_vector_search_with_llm_query_expansion",
+        "grounded": bool(results),
+        "results": results,
+    }
 
 
-def get_care_team_route(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Choose a configured queue name without claiming a person will respond."""
-    return {"route": arguments.get("route", "care-management-general"), "status": "routing_available"}
+def lookup_policy(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Retrieve grounded passages from the supplied plan-policy PDF."""
+    query = str(arguments.get("text") or arguments.get("query") or "")
+    try:
+        available = policy_document_available()
+        results = retrieve_policy(query, llm=arguments.get("_retrieval_llm")) if available else []
+    except (OSError, ValueError, RuntimeError):
+        return {"policy_id": POLICY_ID, "status": "unavailable", "source_file": "uploaded policy PDF",
+                "grounded": False, "results": []}
+    response = {
+        "policy_id": POLICY_ID,
+        "source_context": POLICY_CONTEXT if available else None,
+        "status": "results_found" if results else "no_relevant_match" if available else "not_configured",
+        "source_file": "sbc-gpsd69bceiilo-il-2025.pdf" if available else None,
+        "grounded": bool(results),
+        "results": results,
+    }
+    # This high-risk table value is extracted from the retrieved passage, rather than left for
+    # the response model to copy numbers across a broken PDF table. It stays source-bound.
+    normalized_query = re.sub(r"[^a-z0-9]+", " ", query.casefold())
+    if "out of pocket" in normalized_query:
+        source = " ".join(str(item.get("content", "")) for item in results)
+        source = re.sub(r"-\s+", "-", source)
+        match = re.search(
+            r"Individual:\s*Participating\s*(\$[\d,]+);\s*Non-Participating\s*(\w+)\s*"
+            r"Family:\s*Participating\s*(\$[\d,]+);\s*Non-Participating\s*(\w+)",
+            source, re.IGNORECASE,
+        )
+        if match:
+            individual, individual_non_participating, family, family_non_participating = match.groups()
+            response["answer"] = (
+                "For the 2025 plan summary: Individual: Participating " + individual +
+                "; Non-Participating " + individual_non_participating +
+                ". Family: Participating " + family + "; Non-Participating " +
+                family_non_participating + "."
+            )
+            response["answer_page"] = results[0].get("page") if results else None
+    return response
 
 
-def create_follow_up_task(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Create a requested follow-up task and report creation, not future completion."""
-    return {"created": False, "status": "not_configured", "reason": "No case-management adapter is connected."}
+def provider_directory_search(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Search the configured provider directory using LLM-extracted specialty/location criteria."""
+    return search_provider_directory(arguments)
 
 
-def record_outreach_outcome(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return an outcome record suitable for a downstream audit store."""
-    return {"recorded": True, "outcome": arguments.get("outcome", "completed")}
-
-
-def search_approved_policy(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Search only documents explicitly marked active and clinically reviewed."""
-    documents = [item for item in arguments.get("documents", []) if item.get("approved") and item.get("active")]
-    return {"sources": documents[:3], "grounded": bool(documents)}
-
-
-def get_member_education_script(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return a supplied reviewed script, or an honest no-guidance response."""
-    return {"script": arguments.get("script", "I don't have approved guidance on that topic."),
-            "approved": bool(arguments.get("script"))}
-
-
-def validate_source_version(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Accept active sources only when their supplied version is current."""
-    return {"valid": bool(arguments.get("active")) and arguments.get("version") == arguments.get("current_version")}
-
-
-def benefit_lookup(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return supplied plan facts and explicitly avoid a coverage guarantee."""
-    return {"found": bool(arguments.get("benefit")), "benefit": arguments.get("benefit"),
-            "coverage_guaranteed": False}
-
-
-def provider_navigation(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return bounded directory options without ranking them clinically."""
-    return {"options": list(arguments.get("options", []))[:5], "recommendation": False}
-
-
-def create_member_request(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Create a downstream request and report submission rather than completion."""
-    return {"created": False, "status": "not_configured", "reason": "No scheduling or callback adapter is connected."}
-
-
-def confirm_member_request(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Report only the source-system status supplied by the request adapter."""
-    return {"status": arguments.get("status", "not_found"), "confirmed": arguments.get("status") == "completed"}
+def request_appointment(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Check weekday availability and simulate booking from the fictional provider schedule."""
+    if arguments.get("local_demo_mode") is not True:
+        return {"created": False, "status": "not_configured", "appointment_confirmed": False,
+                "reason": "No scheduling adapter is connected."}
+    return request_demo_appointment(arguments)
 
 
 def safety_escalation(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -240,7 +270,8 @@ def defend_content(arguments: dict[str, Any]) -> dict[str, Any]:
     """Treat retrieved and spoken text as data, flagging common instruction-injection phrases."""
     text = str(arguments.get("text", "")).lower()
     injected = any(phrase in text for phrase in ("ignore previous instructions", "system prompt", "reveal secrets"))
-    return {"safe": not injected, "injection_detected": injected, "sanitized_text": str(arguments.get("text", ""))[:1000]}
+    return {"safe": not injected, "injection_detected": injected,
+            "sanitized_text": str(arguments.get("text", ""))[:1000]}
 
 
 def operational_control(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -271,13 +302,32 @@ def create_urgent_alert(arguments: dict[str, Any]) -> dict[str, Any]:
     return {"created": False, "status": "not_configured", "reason": "No urgent-alert adapter is connected."}
 
 
+def enforce_response_latency(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Apply the fixed voice-response circuit policy; never delegate it to the LLM."""
+    action = str(arguments.get("action", "start"))
+    if action == "success":
+        decision = response_latency_circuit.succeed()
+    elif action in {"timeout", "failure"}:
+        decision = response_latency_circuit.fail()
+    else:
+        decision = response_latency_circuit.start()
+    return {
+        "allowed": decision.allowed,
+        "circuit_open": decision.circuit_open,
+        "failure_count": decision.failure_count,
+        "retry_after_seconds": decision.retry_after_seconds,
+        "filler_after_seconds": 8,
+        "deadline_seconds": 15,
+    }
+
+
 def _definitions(names: tuple[str, ...], handler, scope: frozenset[str] = CARE_SCOPE) -> list[ToolDefinition]:
     """Build tool definitions for grouped operations that share a deterministic handler."""
     return [ToolDefinition(name, handler, scope) for name in names]
 
 
 def register_domain_tools() -> list[ToolDefinition]:
-    """Return the complete tool catalog grouped by the eight capability domains."""
+    """Return the unchanged capability tools plus the six selected capability 4–6 tools."""
     direct = {
         "check_outreach_eligibility": check_outreach_eligibility,
         "check_consent_dnc": check_consent_dnc,
@@ -300,32 +350,35 @@ def register_domain_tools() -> list[ToolDefinition]:
         "record_verification_failure": record_verification_failure,
         "get_safe_outreach_brief": get_safe_outreach_brief,
         "get_approved_goals": get_approved_goals,
-        "get_recent_outreach_summary": get_recent_outreach_summary,
-        "get_care_team_route": get_care_team_route,
-        "create_follow_up_task": create_follow_up_task,
-        "record_outreach_outcome": record_outreach_outcome,
-        "search_approved_policy": search_approved_policy,
-        "get_member_education_script": get_member_education_script,
-        "validate_source_version": validate_source_version,
+        "search_diabetes_playbook": search_diabetes_playbook,
+        "lookup_policy": lookup_policy,
+        "provider_directory_search": provider_directory_search,
+        "request_appointment": request_appointment,
         "assess_emergency": assess_emergency,
         "get_911_or_988_script": get_911_or_988_script,
         "create_urgent_alert": create_urgent_alert,
+        "enforce_response_latency": enforce_response_latency,
     }
     tools = [ToolDefinition(name, handler, IDENTITY_SCOPE if name in {
         "confirm_member", "verify_full_name", "verify_dob", "issue_and_verify_otp", "handle_low_asr_confidence",
         "verify_authorized_representative", "record_verification_failure"} else EMERGENCY_SCOPE if name in {
-        "assess_emergency", "get_911_or_988_script", "create_urgent_alert"} else CARE_SCOPE)
+        "assess_emergency", "get_911_or_988_script", "create_urgent_alert", "enforce_response_latency"} else CARE_SCOPE)
              for name, handler in direct.items()]
     groups = {
-        benefit_lookup: ("lookup_benefit", "check_program_eligibility", "get_covered_service_info"),
-        provider_navigation: ("provider_directory_search", "get_location_or_contact", "lookup_transport_or_support"),
-        create_member_request: ("request_callback", "request_appointment"),
-        confirm_member_request: ("confirm_request_status",),
         safety_escalation: ("create_clinical_review_task", "route_member_distress", "create_safety_follow_up"),
-        access_control: ("authorize_tool_call", "enforce_member_scope", "apply_tool_allowlist", "enforce_role_or_tenant_scope"),
-        protect_phi: ("minimize_prompt_context", "redact_for_logs", "classify_sensitive_data", "apply_retention_policy"),
-        defend_content: ("detect_prompt_injection", "sanitize_untrusted_content", "validate_rag_source", "apply_output_dlp"),
-        operational_control: ("audit_event", "record_policy_decision", "raise_security_incident", "apply_rate_limit", "apply_circuit_breaker"),
+        access_control: (
+            "authorize_tool_call", "enforce_member_scope", "apply_tool_allowlist", "enforce_role_or_tenant_scope",
+        ),
+        protect_phi: (
+            "minimize_prompt_context", "redact_for_logs", "classify_sensitive_data", "apply_retention_policy",
+        ),
+        defend_content: (
+            "detect_prompt_injection", "sanitize_untrusted_content", "validate_rag_source", "apply_output_dlp",
+        ),
+        operational_control: (
+            "audit_event", "record_policy_decision", "raise_security_incident", "apply_rate_limit",
+            "apply_circuit_breaker",
+        ),
     }
     for handler, names in groups.items():
         tools.extend(_definitions(names, handler))

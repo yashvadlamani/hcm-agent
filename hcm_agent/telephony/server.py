@@ -15,7 +15,7 @@ import hmac
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -35,6 +35,7 @@ from ..call_reasons import call_reason
 from ..workflows.member_data import identity_record_for_phone
 from . import live_feed
 from .outbound import decode_call_context, to_e164
+from .transcripts import transcript_store
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -56,6 +57,11 @@ INITIAL_SILENCE_SECONDS = 8   # how long to wait for the patient to start speaki
 END_SILENCE_SECONDS = 2       # pause that marks the end of what they said
 MAX_SILENT_TURNS = 2          # re-ask once, then say goodbye
 NO_INPUT_GOODBYE = "I didn't hear anything, so I'll let you go. Your care team will follow up. Goodbye."
+RESPONSE_FILLER_SECONDS = 8
+RESPONSE_DEADLINE_SECONDS = 15
+RESPONSE_FILLER = "Thanks for your patience. I'm checking that now."
+RESPONSE_TIMEOUT_REPLY = "I'm having trouble connecting right now. Please try again in a moment."
+RESPONSE_PENDING_REPLY = "I'm still checking that. Please give me another moment."
 
 
 @dataclass
@@ -64,10 +70,13 @@ class CallState:
     patient: PhoneNumberIdentifier
     lock: threading.Lock = field(default_factory=threading.Lock)
     silent_turns: int = 0
+    pending_response: Future | None = None
 
 
 calls: dict[str, CallState] = {}
 executor = ThreadPoolExecutor(max_workers=8)
+# Never submit model work to the event executor: its workers must remain free to acknowledge ACS events.
+response_executor = ThreadPoolExecutor(max_workers=8)
 _client: CallAutomationClient | None = None
 _llm: LLM | None = None
 
@@ -165,51 +174,102 @@ def on_speech(call_id: str, data: dict) -> None:
     with state.lock:
         if not said:
             return listen_again(call_id, state)
+        if state.pending_response is not None:
+            return say_and_listen(call_id, clara_says(call_id, RESPONSE_PENDING_REPLY, kind="system"))
+        if not _latency_control(state, "start").get("allowed", False):
+            return say_and_listen(call_id, clara_says(call_id, RESPONSE_TIMEOUT_REPLY, kind="system"))
         state.silent_turns = 0
         recorded = ("[Identity answer provided]" if state.agent.phase in ("verify_name", "verify_dob") else said)
         logger.info("Patient: %s", recorded)
         live_feed.publish(call_id, "patient", text=recorded, confidence=speech.get("confidence"))
-
         agent = state.agent
         sentiment_before, phase_before = agent.sentiment, agent.phase
         live_feed.publish(call_id, "thinking")
-        started = time.monotonic()
-        turn = agent.take_turn(said)
-        latency = time.monotonic() - started
-        logger.info("Clara (%.1fs, %s): %s", latency, turn.action, turn.reply)
+        future = response_executor.submit(agent.take_turn, said)
+        state.pending_response = future
 
-        if (turn.used_model and phase_before == "conversation") or turn.sentiment != sentiment_before:
-            live_feed.publish(call_id, "sentiment", value=turn.sentiment,
-                              change=round(turn.sentiment - sentiment_before, 2))
-        if turn.emergency:
-            live_feed.publish(call_id, "emergency", kind=turn.emergency.kind, source=turn.emergency.source,
-                              reason=turn.emergency.reason)
-        if turn.blocked:
-            live_feed.publish(call_id, "guardrail", rule=turn.blocked["rule"], blocked_text=turn.blocked["text"])
-        if turn.identity:
-            live_feed.publish(call_id, "identity", status=turn.identity, spoke_with=turn.spoke_with)
-        if turn.callback_time:
-            live_feed.publish(call_id, "callback", time=turn.callback_time, spoke_with=turn.spoke_with)
-        if phase_before == "conversation" and turn.phase == "feedback":
-            live_feed.publish(call_id, "closing", reason=agent.closing_reason)
+    started = time.monotonic()
+    try:
+        turn = future.result(timeout=RESPONSE_FILLER_SECONDS)
+    except TimeoutError:
+        # Play only a prompt here (not recognition), so the same patient turn remains in progress.
+        clara_says(call_id, RESPONSE_FILLER, kind="system", latency_notice=True)
+        try:
+            acs().get_call_connection(call_id).play_media_to_all(speech(RESPONSE_FILLER), operation_context="latency_filler")
+            turn = future.result(timeout=RESPONSE_DEADLINE_SECONDS - RESPONSE_FILLER_SECONDS)
+        except TimeoutError:
+            _latency_control(state, "timeout")
+            _clear_when_complete(state, future)
+            logger.warning("Clara response exceeded %ss for %s", RESPONSE_DEADLINE_SECONDS, call_id[-8:])
+            return say_and_listen(call_id, clara_says(call_id, RESPONSE_TIMEOUT_REPLY, kind="system",
+                                                       latency=RESPONSE_DEADLINE_SECONDS, timed_out=True))
+        except Exception:
+            _latency_control(state, "failure")
+            _clear_pending(state, future)
+            logger.exception("Clara response failed after filler for %s", call_id[-8:])
+            return say_and_listen(call_id, clara_says(call_id, RESPONSE_TIMEOUT_REPLY, kind="system"))
+    except Exception:
+        _latency_control(state, "failure")
+        _clear_pending(state, future)
+        logger.exception("Clara response failed for %s", call_id[-8:])
+        return say_and_listen(call_id, clara_says(call_id, RESPONSE_TIMEOUT_REPLY, kind="system"))
 
-        if turn.emergency:
-            kind = "emergency"
-        elif turn.action == "hang_up":
-            kind = "goodbye"
-        elif turn.phase in ("verify_name", "verify_dob") or turn.identity == "confirmed":
-            kind = "opening"
-        else:
-            kind = "closing" if turn.phase == "feedback" else "reply"
-        timing = {"latency": round(latency, 1)} if turn.used_model else {}
-        clara_says(call_id, turn.reply, kind=kind, **timing)
-        if turn.feedback_opt_in is not None:
-            live_feed.publish(call_id, "feedback", requested=turn.feedback_opt_in)
+    latency = time.monotonic() - started
+    _latency_control(state, "success")
+    _clear_pending(state, future)
+    _deliver_turn(call_id, state, agent, turn, latency, sentiment_before, phase_before)
 
-        if turn.action == "hang_up":
-            end_call(call_id, reason=turn.end_reason or "Call complete")
-            return say_and_hang_up(call_id, turn.reply)
-        say_and_listen(call_id, turn.reply)
+
+def _latency_control(state: CallState, action: str) -> dict:
+    """Invoke the safety-family tool outside model control at every response-policy boundary."""
+    result = state.agent.identity_gateway.invoke(
+        "enforce_response_latency", state.agent.identity_context, {"action": action},
+    )
+    if not result.allowed:
+        logger.error("Latency safety tool denied: %s", result.reason)
+        return {"allowed": False}
+    return result.data
+
+
+def _clear_pending(state: CallState, future: Future) -> None:
+    with state.lock:
+        if state.pending_response is future:
+            state.pending_response = None
+
+
+def _clear_when_complete(state: CallState, future: Future) -> None:
+    """A timed-out SDK request cannot be force-cancelled; discard its reply when it eventually returns."""
+    future.add_done_callback(lambda completed: _clear_pending(state, completed))
+
+
+def _deliver_turn(call_id: str, state: CallState, agent: HCMVoiceAgent, turn, latency: float,
+                  sentiment_before: float, phase_before: str) -> None:
+    """Publish and speak a completed turn after the safety deadline has been met."""
+    logger.info("Clara (%.1fs, %s): %s", latency, turn.action, turn.reply)
+    if (turn.used_model and phase_before == "conversation") or turn.sentiment != sentiment_before:
+        live_feed.publish(call_id, "sentiment", value=turn.sentiment, change=round(turn.sentiment - sentiment_before, 2))
+    if turn.emergency:
+        live_feed.publish(call_id, "emergency", kind=turn.emergency.kind, source=turn.emergency.source,
+                          reason=turn.emergency.reason)
+    if turn.blocked:
+        live_feed.publish(call_id, "guardrail", rule=turn.blocked["rule"], blocked_text=turn.blocked["text"])
+    if turn.identity:
+        live_feed.publish(call_id, "identity", status=turn.identity, spoke_with=turn.spoke_with)
+    if turn.callback_time:
+        live_feed.publish(call_id, "callback", time=turn.callback_time, spoke_with=turn.spoke_with)
+    if phase_before == "conversation" and turn.phase == "feedback":
+        live_feed.publish(call_id, "closing", reason=agent.closing_reason)
+    kind = ("emergency" if turn.emergency else "goodbye" if turn.action == "hang_up" else
+            "opening" if turn.phase in ("verify_name", "verify_dob") or turn.identity == "confirmed" else
+            "closing" if turn.phase == "feedback" else "reply")
+    timing = {"latency": round(latency, 1)} if turn.used_model else {}
+    clara_says(call_id, turn.reply, kind=kind, **timing)
+    if turn.feedback_opt_in is not None:
+        live_feed.publish(call_id, "feedback", requested=turn.feedback_opt_in)
+    if turn.action == "hang_up":
+        end_call(call_id, reason=turn.end_reason or "Call complete")
+        return say_and_hang_up(call_id, turn.reply)
+    say_and_listen(call_id, turn.reply)
 
 
 def on_silence(call_id: str) -> None:
@@ -277,6 +337,7 @@ def end_call(call_id: str, reason: str) -> None:
     if state:
         state.agent.end_call()
         live_feed.publish(call_id, "call_ended", reason=reason)
+        transcript_store.save(call_id, [event for event in live_feed.history() if event["call"] == call_id])
         logger.info("Transcript for %s:%s", call_id, state.agent.get_conversation_transcript())
 
 
@@ -316,6 +377,13 @@ def live_events():
     protect_live_view()
     return Response(live_feed.stream(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/live/history")
+def live_history():
+    """Return locally retained, completed demo calls for the authenticated live view."""
+    protect_live_view()
+    return {"calls": transcript_store.recent()}
 
 
 def main() -> None:

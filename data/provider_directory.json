@@ -1,0 +1,63 @@
+{
+  "source_status": "active",
+  "as_of": "2026-10-08",
+  "directory_note": "Fictional demo directory. All names, addresses, specialties, availability, and ratings are fabricated examples; no real providers or clinics are represented.",
+  "providers": [
+    {
+      "provider_id": "demo-chi-schaumburg-001",
+      "display_name": "Dr. Avery Sample (fictional demo provider)",
+      "specialties": ["Endocrinology", "Diabetes care"],
+      "area": "Schaumburg",
+      "city": "Schaumburg",
+      "state": "IL",
+      "address": "1000 Sample Way, Schaumburg, IL 60193 (fictional demo address)",
+      "rating": 4.8,
+      "rating_context": "Fictional sample rating; not sourced from patients or a real listing.",
+      "is_fictional_demo": true,
+      "accepting_new_patients": true,
+      "active": true
+    },
+    {
+      "provider_id": "demo-chi-downtown-002",
+      "display_name": "Dr. Jordan Example (fictional demo provider)",
+      "specialties": ["Endocrinology", "Diabetes education"],
+      "area": "Downtown Chicago",
+      "city": "Chicago",
+      "state": "IL",
+      "address": "2000 Sample Plaza, Chicago, IL 60601 (fictional demo address)",
+      "rating": 4.6,
+      "rating_context": "Fictional sample rating; not sourced from patients or a real listing.",
+      "is_fictional_demo": true,
+      "accepting_new_patients": true,
+      "active": true
+    },
+    {
+      "provider_id": "demo-chi-naperville-003",
+      "display_name": "Dr. Casey Demo (fictional demo provider)",
+      "specialties": ["Endocrinology", "Diabetes care"],
+      "area": "Naperville",
+      "city": "Naperville",
+      "state": "IL",
+      "address": "3000 Example Court, Naperville, IL 60540 (fictional demo address)",
+      "rating": 4.9,
+      "rating_context": "Fictional sample rating; not sourced from patients or a real listing.",
+      "is_fictional_demo": true,
+      "accepting_new_patients": true,
+      "active": true
+    },
+    {
+      "provider_id": "demo-chi-buffalo-grove-004",
+      "display_name": "Dr. Riley Placeholder (fictional demo provider)",
+      "specialties": ["Endocrinology", "Diabetes education"],
+      "area": "Buffalo Grove",
+      "city": "Buffalo Grove",
+      "state": "IL",
+      "address": "4000 Demo Drive, Buffalo Grove, IL 60089 (fictional demo address)",
+      "rating": 4.7,
+      "rating_context": "Fictional sample rating; not sourced from patients or a real listing.",
+      "is_fictional_demo": true,
+      "accepting_new_patients": true,
+      "active": true
+    }
+  ]
+}

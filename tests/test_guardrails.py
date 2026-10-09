@@ -19,10 +19,7 @@ guardrails = VoiceAgentGuardrails()
     "What do you usually eat on the days you skip a meal at work?",
     "Has anything changed with your medication since the hospital stay?",
     "You can talk to your pharmacist about your medication. I'll note the cost for your care team.",
-    # Declining to advise is the safe answer.
-    "I can't tell you to change your insulin dose, but I'm glad you told me. What made this month harder?",
-    "Please don't change any medication without talking to your doctor or pharmacist first.",
-    "It's important to keep taking your medication as prescribed.",
+    "I can't advise on medication. Please contact your doctor or pharmacist with that question.",
 ])
 def test_safe_replies_pass(reply):
     assert guardrails.check_agent_response(reply)[0] == GuardrailViolation.NONE
@@ -38,6 +35,10 @@ def test_safe_replies_pass(reply):
     ("Have you considered skipping the evening dose?", GuardrailViolation.PRESCRIPTION_CHANGE),
     ("It's fine to stretch your insulin a little.", GuardrailViolation.PRESCRIPTION_CHANGE),
     ("Just stop the metformin if it upsets your stomach.", GuardrailViolation.PRESCRIPTION_CHANGE),
+    ("It's important to keep taking your medication as prescribed.", GuardrailViolation.PRESCRIPTION_CHANGE),
+    ("I can't advise, but you should take extra insulin before exercise.", GuardrailViolation.PRESCRIPTION_CHANGE),
+    ("Please don't change any medication without talking to your doctor first.",
+     GuardrailViolation.PRESCRIPTION_CHANGE),
     ("I recommend taking a cinnamon supplement every morning.", GuardrailViolation.MEDICAL_ADVICE),
     ("You should avoid carbs after six.", GuardrailViolation.MEDICAL_ADVICE),
     ("Don't take your insulin on an empty stomach.", GuardrailViolation.MEDICAL_ADVICE),
@@ -45,6 +46,11 @@ def test_safe_replies_pass(reply):
 ])
 def test_unsafe_replies_are_flagged(reply, expected):
     assert guardrails.check_agent_response(reply)[0] == expected
+
+
+def test_medication_advice_is_blocked_even_after_a_disclaimer():
+    reply = "I can't advise, but you should take extra insulin before exercise."
+    assert guardrails.check_agent_response(reply)[0] == GuardrailViolation.PRESCRIPTION_CHANGE
 
 
 @pytest.mark.parametrize("statement", [

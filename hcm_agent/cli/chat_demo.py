@@ -12,7 +12,7 @@ from typing import Any, Dict
 
 from ..agent import HCMVoiceAgent
 from ..agent.conversation import DOB_QUESTION
-from ..workflows.member_data import identity_record_for_name
+from ..workflows.member_data import demo_call_context_for_name, identity_record_for_name
 
 # ---- A simulated phone call in the terminal ----
 
@@ -78,21 +78,37 @@ class MockVoiceInterface:
         return summary
 
 
-def run_interactive_call(agent):
+def run_interactive_call(agent, member_name: str | None = None):
     """Run an interactive voice call session."""
     print("\n🏥 HCM VOICE AGENT - INTERACTIVE TEST\n")
 
     # Get patient info
-    patient_name = input("Patient name: ").strip() or "John Smith"
-    call_reason = input("Reason for the call [diabetes management]: ").strip()
-    risk_drivers = input("Risk drivers (comma-separated): ").strip()
-    risk_drivers = ([d.strip() for d in risk_drivers.split(",")] if risk_drivers
-                    else ["HbA1c > 7.5%", "Blood pressure elevated"])
+    patient_name = member_name or input("Patient name (full name or unique first name): ").strip()
+    selected_record = identity_record_for_name(patient_name)
+    if selected_record:
+        patient_name = selected_record["name"]
+    elif patient_name:
+        print("No unique demo member matched; identity verification will fail closed "
+              "unless a matching record is configured.")
+    demo_context = demo_call_context_for_name(patient_name)
+    default_reason = demo_context.get("for", "diabetes management")
+    default_drivers = demo_context.get("risk_drivers", [])
+    if demo_context:
+        print("Using a fictional demo care scenario for this local interactive simulation.")
+    call_reason = input(f"Reason for the call [{default_reason}]: ").strip() or default_reason
+    risk_input = input('Risk drivers (comma-separated; Enter = scenario defaults, "none" = no drivers): ').strip()
+    if risk_input.lower() == "none":
+        risk_drivers = []
+    elif risk_input:
+        risk_drivers = [driver.strip() for driver in risk_input.split(",") if driver.strip()]
+    else:
+        risk_drivers = default_drivers
 
     patient_context = {
         "name": patient_name,
         "call_reason": call_reason,
-        "risk_drivers": risk_drivers
+        "risk_drivers": risk_drivers,
+        "local_demo_context": bool(demo_context),
     }
 
     # Start call
@@ -185,6 +201,7 @@ def guardrail_check() -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chat with Clara in the terminal.")
     parser.add_argument("mode", nargs="?", choices=["interactive", "guardrails", "demo"], default="interactive")
+    parser.add_argument("--member", help="select a demo member by unique first name or full name (interactive mode)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
@@ -193,7 +210,7 @@ def main() -> None:
     elif args.mode == "guardrails":
         guardrail_check()
     else:
-        run_interactive_call(HCMVoiceAgent())
+        run_interactive_call(HCMVoiceAgent(), member_name=args.member)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,14 @@
 langchain>=1,<2
+langchain-classic>=1,<2
 langgraph>=1,<2
 langchain-openai>=1,<2
 langchain-anthropic>=1,<2
+langchain-chroma>=1,<2
+langchain-community>=0.4,<1
+langchain-text-splitters>=1,<2
+chromadb>=1,<2
+fastembed>=0.7,<1
+pypdf>=5,<7
 python-dotenv
 azure-communication-callautomation
 flask

@@ -50,6 +50,17 @@ class VoiceAgentGuardrails:
                r"eliminat(e|ing)|add(ing)?|follow(ing)?)\b"
     PRESCRIPTION_PATTERNS = [COMMANDING + CHANGE + r".{0,40}?" + MEDICINE,
                              RECOMMENDING + CHANGING + r".{0,40}?" + MEDICINE]
+    # Also block softer medication directives, including "keep taking as prescribed". This is
+    # deliberately narrower than any mention of medication so supportive questions remain safe.
+    MEDICATION_DIRECTIVE = (r"(?:take|use|start|stop|continue|keep|skip|change|adjust|increase|decrease|"
+                            r"reduce|stretch|split|double|halve|switch|follow)(?:\s+\w+){0,3}\s+" + MEDICINE)
+    MEDICATION_ADVICE_PATTERNS = [
+        r"\b(?:you should|you need to|you must|you have to|you can|you could|you may want to|"
+        r"i recommend|i suggest|i advise|please|don't|do not|never|always|it is important to|"
+        r"it's important to|it is best to|it's best to)\s+" + MEDICATION_DIRECTIVE,
+        r"\b(?:but|however)\s+(?:please\s+)?" + MEDICATION_DIRECTIVE,
+        r"\b(?:keep|continue)\s+(?:taking|using)\b.{0,50}?" + MEDICINE,
+    ]
     ADVICE_PATTERNS = [COMMANDING + ADVISE + r".{0,40}?" + ADVICE_TOPIC,
                        RECOMMENDING + ADVISING + r".{0,40}?" + ADVICE_TOPIC]
     # Declining to advise, or pointing back to what the doctor prescribed, is the safe answer.
@@ -112,12 +123,21 @@ class VoiceAgentGuardrails:
             if pattern.search(response):
                 return GuardrailViolation.PROMISE, f"Promise pattern: {response[:100]}"
 
-        # Check each sentence for medication changes, then for other medical advice
-        sentences = [s for s in re.split(r"(?<=[.!?;])\s+", response) if not self.not_advice_regex.search(s)]
+        # Medication advice is prohibited even if the same sentence starts with a refusal.
+        # Check its specific patterns before the generic "not advice" exemption.
+        sentences = re.split(r"(?<=[.!?;])\s+", response)
         for sentence in sentences:
+            if any(re.search(pattern, sentence, re.IGNORECASE) for pattern in self.MEDICATION_ADVICE_PATTERNS):
+                return GuardrailViolation.PRESCRIPTION_CHANGE, f"Medication advice pattern: {response[:100]}"
+        # Check each sentence for medication changes, then for other medical advice.
+        for sentence in sentences:
+            if self.not_advice_regex.search(sentence):
+                continue
             if any(pattern.search(sentence) for pattern in self.prescription_regex):
                 return GuardrailViolation.PRESCRIPTION_CHANGE, f"Prescription change pattern: {response[:100]}"
         for sentence in sentences:
+            if self.not_advice_regex.search(sentence):
+                continue
             if any(pattern.search(sentence) for pattern in self.advice_regex):
                 return GuardrailViolation.MEDICAL_ADVICE, f"Medical advice pattern: {response[:100]}"
 

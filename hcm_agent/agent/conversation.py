@@ -61,8 +61,8 @@ SAFE_FALLBACKS = {
         "I can't give medical advice, but your doctor or pharmacist can help with that question. "
         "I'll note it for your care team.",
     GuardrailViolation.PRESCRIPTION_CHANGE:
-        "Please don't change any medication without talking to your doctor or pharmacist first. "
-        "I'll note your question for your care team.",
+        "I can't advise on medication. Please contact your doctor or pharmacist with that question. "
+        "I'll note that you have a medication question for your care team.",
     GuardrailViolation.PROMISE:
         "That's not something I can do on this call, but I'll note it for your care team "
         "so they can follow up.",
@@ -185,6 +185,32 @@ class HCMVoiceAgent:
         reason = call_reason(self.patient_context.get("call_reason"))
         return f"I'm calling to {reason.purpose}. {reason.question}"
 
+    def _care_tool_profile(self) -> dict:
+        """Bind care tools to the active call and verified member, never to model arguments."""
+        profile = dict(self.identity_record.get("profile", {}))
+        local_demo = self.patient_context.get("local_demo_context") is True
+        demo_context = self.identity_record.get("demo_call_context", {}) if local_demo else {}
+        care_management = self.identity_record.get("care_management") or {}
+        drivers = self.patient_context.get("risk_drivers")
+        if local_demo and not drivers:
+            drivers = demo_context.get("risk_drivers", [])
+        profile.update({
+            "outreach_purpose": self.patient_context.get("call_reason") or demo_context.get("for") or "check in",
+            "outreach_risk_drivers": drivers or [],
+            "outreach_data_status": "fictional_demo_only" if local_demo else "outreach_request",
+            "local_demo_mode": local_demo,
+            "care_goals": demo_context.get("goals_on_file", []) if local_demo else
+                          care_management.get("approved_goals", []),
+            "care_team_record": demo_context.get("care_team_record", "") if local_demo else
+                                care_management.get("care_team_record", ""),
+            "care_follow_up_plan": demo_context.get("follow_up_plan", []) if local_demo else
+                                   care_management.get("follow_up_plan", []),
+            "goals_approved": False if local_demo else care_management.get("goals_approved") is True,
+            "goals_data_status": "fictional_demo_only" if local_demo else
+                                 care_management.get("data_status", "not_configured"),
+        })
+        return profile
+
     # ---- The turn ----
 
     def take_turn(self, patient_message: str) -> Turn:
@@ -229,7 +255,7 @@ class HCMVoiceAgent:
         self.conversation_history.append({"role": "user", "content": said})
         try:
             raw = self.care_graph.respond(
-                self.llm, self.identity_context, self.identity_record.get("profile", {}),
+                self.llm, self.identity_context, self._care_tool_profile(),
                 get_system_prompt(self.patient_context), self.conversation_history,
                 verified=self.identity == "confirmed",
             )

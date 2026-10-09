@@ -68,7 +68,7 @@ def test_every_registered_tool_has_a_langchain_definition():
     gateway = build_default_gateway()
     context = ToolCallContext("agent", "test", "care_management", "m1",
                               frozenset({"care_outreach", "member_verify", "safety_escalation"}))
-    tools = build_tools(gateway, context, {}, families=tuple(FAMILIES), verified=True)
+    tools = build_tools(families=tuple(FAMILIES))
     assert {tool.name for tool in tools} == set(gateway.tool_names)
 
 

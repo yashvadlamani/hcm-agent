@@ -25,6 +25,12 @@ def identity_record_for_name(name: str) -> dict[str, Any]:
     return _identity_record(name=name)
 
 
+def demo_call_context_for_name(name: str) -> dict[str, Any]:
+    """Return explicitly fictional demo scenario data for local interactive simulations only."""
+    context = identity_record_for_name(name).get("demo_call_context", {})
+    return context if context.get("data_status") == "fictional_demo_only" else {}
+
+
 def _identity_record(phone: str = "", name: str = "") -> dict[str, Any]:
     """Resolve one expected identity from a server-owned record, never a spoken claim.
 
@@ -37,9 +43,14 @@ def _identity_record(phone: str = "", name: str = "") -> dict[str, Any]:
 
     try:
         dataset = json.loads(Path(os.environ.get("MEMBER_DATA_PATH", str(DEMO_MEMBERS_PATH))).read_text())
+        normalized_name = normalize_name(name)
         matches = [member for member in dataset["members"] if
                    (bool(phone) and digits(member["phone"]) == digits(phone)) or
-                   (bool(name) and normalize_name(member["name"]) == normalize_name(name))]
+                   (bool(name) and (
+                       normalize_name(member["name"]) == normalized_name or
+                       (" " not in normalized_name and
+                        normalize_name(member["name"]).split(" ", 1)[0] == normalized_name)
+                   ))]
         if len(matches) != 1 or not dataset.get("tenant_id"):
             return {}
         member = matches[0]
