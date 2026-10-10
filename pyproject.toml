@@ -28,6 +28,7 @@ clara-chat = "hcm_agent.cli.chat_demo:main"
 clara-seed-transcript = "hcm_agent.telephony.seed_transcript:main"
 clara-playbook-index = "hcm_agent.tools.playbook:main"
 clara-policy-index = "hcm_agent.tools.policy:main"
+clara-provider-index = "hcm_agent.tools.providers:main"
 
 [tool.setuptools.dynamic]
 dependencies = { file = ["requirements.txt"] }

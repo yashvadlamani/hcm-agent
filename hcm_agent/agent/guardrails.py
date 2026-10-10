@@ -10,7 +10,6 @@ class GuardrailViolation(Enum):
     MEDICAL_DIAGNOSIS = "medical_diagnosis"
     MEDICAL_ADVICE = "medical_advice"
     PRESCRIPTION_CHANGE = "prescription_change"
-    PROMISE = "promise"
     EMERGENCY_SYMPTOM = "emergency_symptom"
     NONE = "none"
 
@@ -67,22 +66,6 @@ class VoiceAgentGuardrails:
     NOT_ADVICE = (r"\b(i can't|i cannot|i can not|i'm not able to|i am not able to|i'm unable to|i won't|"
                   r"not something i can|as prescribed|as directed|as your doctor)\b")
 
-    # Promises Clara can't keep: she can't connect, transfer, schedule, send or arrange anything,
-    # or commit anyone else to act. "I'll note that for your care team" is fine and isn't matched.
-    PROMISE_PATTERNS = [
-        r"\b(i'll|i will|i'm going to|let me|we'll|we will)\s+(\w+\s+){0,3}?"
-        r"(connect|transfer|put you through|schedule|book|arrange|send|text|email|call you|"
-        r"reach out|contact|get you|make sure|have someone)\b",
-        r"\b(someone|somebody|a nurse|a doctor|your doctor|a care manager|your care manager|"
-        r"the care team|your care team|they)\s+will\s+(\w+\s+){0,2}?"
-        r"(call|contact|reach out|follow up|get back|be in touch|text|email|visit)\b",
-        r"\b(right away|right now|immediately|as soon as possible|within the hour|today)\b.{0,40}"
-        r"\b(connect|transfer|call you|contact you|reach out|follow up)\b",
-        r"\b(connect|transfer|call you|contact you|reach out|follow up)\b.{0,40}"
-        r"\b(right away|right now|immediately|as soon as possible|within the hour)\b",
-        r"\bi (promise|guarantee)\b",
-    ]
-
     # Emergency keywords: an instant safety net that runs before the model's own clinical assessment.
     EMERGENCY_KEYWORDS = [
         "chest pain", "difficulty breathing", "shortness of breath",
@@ -100,7 +83,6 @@ class VoiceAgentGuardrails:
         self.diagnosis_regex = [re.compile(p, re.IGNORECASE) for p in self.DIAGNOSIS_PATTERNS]
         self.advice_regex = [re.compile(p, re.IGNORECASE) for p in self.ADVICE_PATTERNS]
         self.prescription_regex = [re.compile(p, re.IGNORECASE) for p in self.PRESCRIPTION_PATTERNS]
-        self.promise_regex = [re.compile(p, re.IGNORECASE) for p in self.PROMISE_PATTERNS]
         self.not_advice_regex = re.compile(self.NOT_ADVICE, re.IGNORECASE)
 
     def check_agent_response(self, response: str) -> Tuple[GuardrailViolation, str]:
@@ -117,11 +99,6 @@ class VoiceAgentGuardrails:
         for pattern in self.diagnosis_regex:
             if pattern.search(response):
                 return GuardrailViolation.MEDICAL_DIAGNOSIS, f"Diagnosis pattern detected: {response[:100]}"
-
-        # Check for promises Clara can't keep
-        for pattern in self.promise_regex:
-            if pattern.search(response):
-                return GuardrailViolation.PROMISE, f"Promise pattern: {response[:100]}"
 
         # Medication advice is prohibited even if the same sentence starts with a refusal.
         # Check its specific patterns before the generic "not advice" exemption.

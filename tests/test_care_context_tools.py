@@ -23,6 +23,7 @@ DEMO_CONTEXT = {
 
 def test_care_graph_calls_both_context_tools_and_reviews_member_bound_results():
     model = ScriptedChatModel(replies=[
+        AIMessage(content=json.dumps({"emergency": False, "kind": "medical", "reason": ""})),
         call("get_safe_outreach_brief"),
         call("get_approved_goals"),
         AIMessage(content=json.dumps({
@@ -54,6 +55,32 @@ def test_care_graph_calls_both_context_tools_and_reviews_member_bound_results():
     assert any('"data_status": "fictional_demo_only"' in result for result in tool_results)
     assert any('"approved": false' in result for result in tool_results)
     assert all(event["member_id"] == "demo-himanshu-gupta" for event in agent.identity_gateway.audit_log)
+
+
+def test_why_was_i_contacted_routes_through_the_safe_outreach_brief_tool():
+    model = ScriptedChatModel(replies=[
+        AIMessage(content=json.dumps({"emergency": False, "kind": "medical", "reason": ""})),
+        call("get_safe_outreach_brief"),
+        AIMessage(content=json.dumps({
+            "reply": "This call is a diabetes-management check-in based on your care team's outreach plan.",
+            "emergency": {"detected": False, "type": "none", "reason": ""},
+            "sentiment": 0.5, "conversation_state": "ongoing",
+        })),
+    ])
+    agent = HCMVoiceAgent(settings=VALID, llm=LangChainLLM(model))
+    agent.initialize_call(
+        {"name": "Himanshu Gupta", "call_reason": "diabetes management", "local_demo_context": True},
+        identity_record={"member_id": "demo-himanshu-gupta", "tenant_id": "demo-health-plan",
+                         "demo_call_context": DEMO_CONTEXT},
+    )
+    agent.identity, agent.phase = "confirmed", "conversation"
+
+    turn = agent.take_turn("What made you contact me?")
+
+    assert turn.reply.startswith("This call is a diabetes-management check-in")
+    assert "get_safe_outreach_brief" in model.bound_names
+    assert any('"purpose": "diabetes management"' in message.content
+               for message in model.seen[-1] if isinstance(message, ToolMessage))
 
 
 def test_context_tool_ignores_model_supplied_member_facts():

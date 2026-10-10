@@ -99,9 +99,13 @@ def retrieve_policy(query: str, *, llm=None, limit: int = 3) -> list[dict]:
     else:
         retriever = base_retriever
 
+    return _policy_results(retriever.invoke(query), limit=limit)
+
+
+def _policy_results(documents, *, limit: int) -> list[dict]:
     results = []
     seen = set()
-    for document in retriever.invoke(query):
+    for document in documents:
         metadata = document.metadata
         chunk_id = metadata.get("chunk_id", "")
         if chunk_id in seen:

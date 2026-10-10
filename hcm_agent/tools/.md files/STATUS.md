@@ -65,6 +65,15 @@ The phone response-deadline policy is documented in [`safety.md`](../safety.md).
 enforced by `telephony/server.py` through the safety-family `enforce_response_latency`
 tool, not left to an LLM decision.
 
+## Live tools and sources trace
+
+The `/live` **Tools & sources** tab is backed by OpenTelemetry spans for activated LangGraph
+capability agents and decorated tools. It displays only capability/tool names, safe source labels,
+duration, and completion state. It intentionally excludes caller speech, member IDs, identity values,
+tool arguments, retrieved passages, and model prompts. The local trace view is in memory for the
+running call; set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to additionally export standard OTLP traces
+to an approved collector. This demo has no durable trace/audit backend.
+
 ## Local phone transcript history
 
 The authenticated `/live` view retains the newest 50 *completed* demo calls in the local SQLite file

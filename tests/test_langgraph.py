@@ -14,6 +14,7 @@ from hcm_agent.tools import ToolCallContext, build_default_gateway
 from hcm_agent.tools.catalog import FAMILIES, build_tools
 from hcm_agent.workflows.graph import run_agent
 from hcm_agent.workflows.graph import build_capability_agent
+from hcm_agent.workflows.graph import run_capability_agent
 from hcm_agent.tools.tools import CAPABILITY_TOOLS
 from test_config import VALID
 
@@ -52,6 +53,23 @@ def test_capability_graph_exposes_all_eight_named_tool_nodes():
     node_names = set(graph.get_graph().nodes)
     assert set(CAPABILITY_TOOLS) <= node_names
     assert {"capability_8_security_guard", "capability_7_safety_guard", "care_model"} <= node_names
+
+
+def test_safety_agent_routes_a_panic_attack_to_the_fixed_emergency_response():
+    context = ToolCallContext("agent", "test", "care_management", "m1",
+                              frozenset({"care_outreach", "safety_escalation"}))
+    model = ScriptedChatModel(replies=[AIMessage(content=json.dumps({
+        "emergency": True, "kind": "medical", "reason": "stated panic attack",
+    }))])
+    state = run_capability_agent(model, "test",
+                                 [{"role": "user", "content": "I'm having a panic attack."}],
+                                 tool_context={"gateway": build_default_gateway(), "context": context,
+                                               "profile": {}, "verified": True})
+    response = json.loads(state["messages"][-1].content)
+    assert response["emergency"]["detected"] is True
+    assert response["emergency"]["type"] == "medical"
+    assert "911" in response["reply"]
+    assert len(model.seen) == 1
 
 
 def invoke_catalog_tool(name, arguments, *, gateway, context, profile=None, verified=False, retrieval_llm=None):
@@ -129,11 +147,19 @@ def test_catalog_covers_families_and_blocks_unverified_access(tmp_path, monkeypa
     }]}))
     monkeypatch.setenv("CLARA_PROVIDER_DIRECTORY_PATH", str(directory))
     provider_result = invoke_catalog_tool("provider_directory_search",
-        {"specialty": "endocrinology", "city": "Austin", "state": "TX"}, gateway=gateway,
+        {"provider_name": "Demo Clinic"}, gateway=gateway,
         context=context, profile=profile, verified=True)
     assert provider_result["data"]["options"][0]["provider_id"] == "p1"
+    # A later spoken time can use the single fictional provider and exact offered date held in call state.
+    remembered_slot = profile["pending_demo_appointment"]["offered_slots"][0]
     scheduling.DEMO_APPOINTMENTS.clear()
     try:
+        remembered_booking = invoke_catalog_tool("request_appointment", {"requested_time": remembered_slot["time"]},
+                                                 gateway=gateway, context=context, profile=profile,
+                                                 verified=True)["data"]
+        assert remembered_booking["status"] == "demo_appointment_scheduled"
+        assert remembered_booking["appointment"]["provider_id"] == "p1"
+        assert remembered_booking["appointment"]["date"] == remembered_slot["date"]
         now = datetime.now(ZoneInfo("America/Chicago")).replace(hour=8, minute=0, second=0, microsecond=0)
         saturday_offset = (5 - now.weekday()) % 7 or 7
         saturday = now.date() + timedelta(days=saturday_offset)

@@ -38,6 +38,23 @@ def sample_events(now: float | None = None) -> list[dict]:
     add(62, "patient", text="Weekday mornings are usually easier for me.", confidence=0.93)
     add(62, "thinking")
     add(64, "sentiment", value=0.68, change=0.10)
+    add(64, "agent_trace", entries=[
+        {"name": "invoke_agent capability_3_identity", "kind": "agent", "capability": "Capability 3 · Identity",
+         "tool": "", "source": "", "duration_ms": 620, "success": True, "at": started + 29, "turn": 1},
+        {"name": "execute_tool verify_full_name", "kind": "tool", "capability": "Capability 3 · Identity",
+         "tool": "verify_full_name", "source": "", "duration_ms": 2, "success": True, "at": started + 14, "turn": 1},
+        {"name": "execute_tool verify_dob", "kind": "tool", "capability": "Capability 3 · Identity",
+         "tool": "verify_dob", "source": "", "duration_ms": 2, "success": True, "at": started + 29, "turn": 2},
+        {"name": "invoke_agent capability_8_security", "kind": "agent", "capability": "Capability 8 · Security",
+         "tool": "", "source": "", "duration_ms": 4, "success": True, "at": started + 64, "turn": 4},
+        {"name": "invoke_agent capability_7_safety", "kind": "agent", "capability": "Capability 7 · Safety",
+         "tool": "", "source": "", "duration_ms": 3, "success": True, "at": started + 64, "turn": 4},
+        {"name": "invoke_agent care_model", "kind": "agent", "capability": "Care model",
+         "tool": "", "source": "", "duration_ms": 480, "success": True, "at": started + 64, "turn": 4},
+        {"name": "execute_tool provider_directory_search", "kind": "tool", "capability": "Capability 6 · Care navigation",
+         "tool": "provider_directory_search", "source": "Provider directory", "duration_ms": 18, "success": True,
+         "at": started + 64, "turn": 4},
+    ])
     add(64, "clara", kind="closing", latency=1.6,
         text="Weekday mornings are a useful preference to note for your care team. Would you like a short feedback form by text message?")
     add(79, "patient", text="Yes, please.", confidence=0.98)

@@ -61,5 +61,13 @@ def clear() -> None:
         _history.clear()
 
 
+def remove_calls(call_ids: set[str]) -> None:
+    """Remove deleted completed calls from the replay buffer as well as durable history."""
+    if not call_ids:
+        return
+    with _lock:
+        _history[:] = [event for event in _history if event.get("call") not in call_ids]
+
+
 def _format(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
