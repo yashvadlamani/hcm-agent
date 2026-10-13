@@ -190,7 +190,8 @@ def test_phone_call_uses_native_tools_for_identity_and_policy(monkeypatch):
     reply = "I can't confirm that policy from an approved source right now."
     monkeypatch.setattr(domains, "policy_document_available", lambda: True)
     monkeypatch.setattr(domains, "retrieve_policy", lambda query, llm=None: [{
-        "policy_id": "test-policy", "title": "Test policy", "page": 1,
+        # The registered policy source: passages from any other source are now dropped before the model.
+        "policy_id": domains.POLICY_ID, "title": "Test policy", "page": 1,
         "content": "Test policy excerpt",
     }])
     model = ScriptedChatModel(replies=[
