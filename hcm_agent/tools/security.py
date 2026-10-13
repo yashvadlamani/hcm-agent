@@ -16,8 +16,10 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
+import unicodedata
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
@@ -143,3 +145,181 @@ def reset() -> None:
     with _breakers_lock:
         _breakers.clear()
     rate_limiter = RateLimiter()
+
+
+# ---- Sensitive data: rule-based classification and redaction. Found values are never returned. ----
+
+_IDENTIFIERS = {  # checked in this order, so a card number is not half-read as a phone number
+    "payment_card": re.compile(r"(?<!\d)(?:\d[ -]?){12,15}\d(?!\d)"),
+    "phone": re.compile(r"(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]?\d{3}[ .-]?\d{4}(?!\d)"),
+    "ssn": re.compile(r"(?<!\d)\d{3}[- ]?\d{2}[- ]?\d{4}(?!\d)"),
+    "email": re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b"),
+    "date_of_birth": re.compile(
+        r"\b(?:born(?: on)?|date of birth(?: is)?|dob(?: is)?|birthday(?: is)?)\s+(?:on\s+)?"
+        r"(?:[A-Za-z]+ \d{1,2}(?:st|nd|rd|th)?,? \d{4}|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}-\d{2}-\d{2})",
+        re.IGNORECASE),
+}
+_HEALTH = re.compile(
+    r"\b(diabet\w*|insulin|metformin|a1c|hba1c|blood sugar|glucose|medication\w*|medicine\w*|prescription\w*|"
+    r"refill\w*|diagnos\w*|hospital\w*|emergency room|surgery|symptom\w*|dos(?:e|es|age)|pharmac\w*|doctor\w*|"
+    r"endocrinolog\w*|neuropathy|blood pressure|depress\w*|anxiety|chest pain|dizz\w*)\b", re.IGNORECASE)
+_FINANCIAL = re.compile(
+    r"\b(co-?pay\w*|deductible\w*|premium\w*|bills?|afford\w*|insurance|bank account|credit card|\d+ dollars)\b"
+    r"|\$\s?\d", re.IGNORECASE)
+
+
+def redact(text: str, member_id: str = "") -> str:
+    """Replace direct identifiers (card, phone, SSN, email, stated date of birth, member ID) with labels."""
+    for label, pattern in _IDENTIFIERS.items():
+        text = pattern.sub(f"[{label.replace('_', ' ')}]", text)
+    if member_id and member_id not in ("unresolved", "unknown"):
+        text = text.replace(member_id, "[member id]")
+    return text
+
+
+def classify(text: str, member_id: str = "") -> dict[str, Any]:
+    """Label a text by the most sensitive kind of data in it, and return a copy safe to store."""
+    identifiers = [label for label, pattern in _IDENTIFIERS.items() if pattern.search(text)]
+    if member_id and member_id not in ("unresolved", "unknown") and member_id in text:
+        identifiers.append("member_id")
+    categories = identifiers + (["health"] if _HEALTH.search(text) else []) + (
+        ["financial"] if _FINANCIAL.search(text) else [])
+    level = ("direct_identifier" if identifiers else "health_information" if "health" in categories
+             else "financial" if "financial" in categories else "none")
+    return {"classification": level, "categories": categories, "identifier_count": len(identifiers),
+            "redacted_text": redact(text, member_id)[:1000]}
+
+
+# ---- Prompt injection: rule-based detection of attempts to take over or probe the assistant ----
+
+_INJECTION = {
+    "instruction_override": [
+        r"\b(ignore|disregard|forget|override|bypass)\b.{0,30}\b(previous|prior|above|earlier|all|any|your|system|safety)\b"
+        r".{0,20}\b(instructions?|rules?|prompts?|guidelines?|guardrails?|restrictions?|programming)\b",
+        r"\bnew (instructions?|rules?)\s*:", r"\bfrom now on,? you (are|will|must|should)\b",
+        r"\b(stop|quit) being clara\b",
+    ],
+    "role_hijack": [
+        r"\byou are now (a|an|my|the|in|dan|free|unrestricted)\b", r"\b(pretend|imagine) (to be|you are|you're)\b",
+        r"\b(act|behave|respond|roleplay|role-play) as (a |an |my |the )?"
+        r"(doctor|physician|pharmacist|nurse|clinician|admin\w*|developer|system|dan|different|unrestricted)\b",
+        r"\b(developer|debug|god|admin|jailbreak) mode\b", r"\bjailbreak\b", r"\bdo anything now\b",
+    ],
+    "prompt_exfiltration": [
+        r"\b(reveal|show|print|repeat|recite|display|output|tell me|what(?:'s| is| are))\b.{0,25}"
+        r"\b(system|hidden|initial|original|secret)?\s*(prompt|instructions|guidelines|rules you (were|are) given)\b",
+        r"\bsystem prompt\b", r"\breveal (your |the )?secrets?\b",
+    ],
+    "data_exfiltration": [
+        r"\b(give|tell|read|show|list|send|look up)\b.{0,25}\b(another|other|someone else'?s?|all|every)\b.{0,15}"
+        r"\b(members?|patients?|people|callers?)(?:'s?)?\b.{0,20}\b(data|records?|information|details|"
+        r"dates? of birth|phone numbers?|names?)\b",
+    ],
+    "safety_bypass": [
+        r"\b(bypass|skip|disable|turn off|ignore)\b.{0,20}"
+        r"\b(verification|identity check|guardrails?|safety|filters?)\b",
+        r"\b(mark|treat|consider) (me|this caller|the caller) as verified\b", r"\bwithout verif\w+\b",
+    ],
+    "tool_abuse": [
+        r"\b(call|invoke|run|execute|use) (the |a )?(tool|function|api)\b",
+        r"\b[a-z]{3,}(?:_[a-z0-9]{2,}){1,}\b",  # snake_case names: people don't say these on the phone
+    ],
+    "markup": [
+        r"<\s*/?\s*(system|assistant|instructions?)\s*>", r"\[\s*(system|inst)\s*\]",
+        r"(^|\n)\s*(system|assistant|developer)\s*:", r"```", r"#{2,}\s*(system|instruction)",
+    ],
+}
+_INJECTION_PATTERNS = {category: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
+                       for category, patterns in _INJECTION.items()}
+_INVISIBLE = re.compile("[\u200b-\u200f\u2060\ufeff\u00ad]")
+
+
+def detect_injection(text: str) -> dict[str, Any]:
+    """Look for attempts to override instructions, change Clara's role, extract her prompt or other
+    members' data, bypass safety checks, or drive tools. Any match makes the text unsafe."""
+    normalized = " ".join(_INVISIBLE.sub("", unicodedata.normalize("NFKC", text)).split())
+    categories, sanitized = [], normalized
+    for category, patterns in _INJECTION_PATTERNS.items():
+        if any(pattern.search(normalized) for pattern in patterns):
+            categories.append(category)
+            for pattern in patterns:
+                sanitized = pattern.sub("[removed]", sanitized)
+    return {"safe": not categories, "injection_detected": bool(categories), "categories": categories,
+            "risk": "high" if categories else "none", "sanitized_text": sanitized[:1000]}
+
+
+# ---- Logs: the same redaction, applied to every log line before it is written ----
+
+class RedactingLogFilter(logging.Filter):
+    """Removes direct identifiers from log records. Attach it to handlers, so every logger is covered."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            message = record.getMessage()
+            cleaned = redact(message)
+            if cleaned != message:
+                record.msg, record.args = cleaned, ()
+        except Exception:  # a log line must never be lost because redaction failed
+            pass
+        return True
+
+
+# ---- Prompt context: only what the model or a tool needs, and no direct identifiers ----
+
+PROMPT_KEYS = ("name", "risk_drivers", "call_reason", "local_demo_context")  # what the system prompt reads
+IDENTIFIER_KEYS = frozenset({"date_of_birth", "dob", "ssn", "phone", "phone_number", "email", "address",
+                             "member_id", "tenant_id", "call_id"})
+MAX_TEXT, MAX_ITEMS, MAX_DEPTH = 2000, 10, 4
+
+
+def _trimmed(value: Any, depth: int = 0) -> Any:
+    """Redact and cap a value: long texts cut, long lists shortened, identifier fields dropped."""
+    if isinstance(value, str):
+        return redact(value)[:MAX_TEXT]
+    if isinstance(value, (list, tuple)):
+        return [_trimmed(item, depth + 1) for item in list(value)[:MAX_ITEMS]] if depth < MAX_DEPTH else []
+    if isinstance(value, dict):
+        return ({key: _trimmed(item, depth + 1) for key, item in value.items()
+                 if str(key).lower() not in IDENTIFIER_KEYS} if depth < MAX_DEPTH else {})
+    return value
+
+
+def minimize(context: dict[str, Any], purpose: str = "tools") -> dict[str, Any]:
+    """Reduce a call context to what its use needs. For "prompt": only the fields the system prompt
+    reads. For "tools": everything except identifier fields. Texts are redacted and capped either way."""
+    kept = ({key: context[key] for key in PROMPT_KEYS if key in context} if purpose == "prompt"
+            else {key: value for key, value in context.items() if str(key).lower() not in IDENTIFIER_KEYS})
+    minimized = {key: (value if key == "name" else _trimmed(value)) for key, value in kept.items()}
+    return {"context": minimized, "purpose": purpose, "removed": sorted(set(context) - set(minimized))}
+
+
+# ---- Untrusted content: retrieved passages and tool output are data, never instructions ----
+
+# Not "tool_abuse" or "data_exfiltration": tool output legitimately contains field names and records.
+CONTENT_CATEGORIES = ("instruction_override", "role_hijack", "prompt_exfiltration", "safety_bypass", "markup")
+
+
+def sanitize(content: Any, _found: Optional[set] = None, _depth: int = 0) -> dict[str, Any]:
+    """Remove instruction-like text from every string in a value (text, list or nested record)."""
+    found: set = _found if _found is not None else set()
+
+    def clean(value: Any, depth: int) -> Any:
+        if isinstance(value, str):
+            text = " ".join(_INVISIBLE.sub("", unicodedata.normalize("NFKC", value)).split()) \
+                if _INVISIBLE.search(value) else value
+            for category in CONTENT_CATEGORIES:
+                for pattern in _INJECTION_PATTERNS[category]:
+                    if pattern.search(text):
+                        found.add(category)
+                        text = pattern.sub("[removed]", text)
+            return text
+        if depth >= 8:
+            return value
+        if isinstance(value, list):
+            return [clean(item, depth + 1) for item in value]
+        if isinstance(value, dict):
+            return {key: clean(item, depth + 1) for key, item in value.items()}
+        return value
+
+    cleaned = clean(content, _depth)
+    return {"content": cleaned, "sanitized": bool(found), "categories": sorted(found)}

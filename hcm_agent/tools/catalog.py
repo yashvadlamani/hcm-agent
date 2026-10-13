@@ -153,6 +153,10 @@ SCHEMAS = {
 }
 
 
+RETRIEVAL_TOOLS = frozenset({"search_diabetes_playbook", "lookup_policy"})
+UNTRUSTED_OUTPUT_FAMILIES = frozenset({"care", "guidance", "navigation"})
+
+
 def build_tools(*, families=CARE_FAMILIES):
     """Build decorated tools; member-specific values are supplied in graph state at invocation."""
     definitions = {item.name: item for item in register_domain_tools()}
@@ -200,7 +204,25 @@ def build_tools(*, families=CARE_FAMILIES):
                 bound.update(kind=assessed.get("kind"), reason=assessed.get("reason", ""),
                              source=assessed.get("source"), tenant_id=context.tenant_id)
             result = gateway.invoke(name, context, bound)
-            output = {"allowed": result.allowed, "data": result.data, "reason": result.reason,
+            data, member = result.data, {"member_id": context.member_id}
+            if result.allowed and name in RETRIEVAL_TOOLS:
+                # Only passages from a registered source reach the model, with any approval or date warning.
+                checked = gateway.invoke("validate_rag_source", context, {
+                    "source_id": data.get("playbook_id") or data.get("policy_id"),
+                    "results": data.get("results", []), **member})
+                if checked.allowed:
+                    validation = dict(checked.data)
+                    accepted = validation.pop("accepted", [])
+                    data = {**data, "results": accepted, "grounded": bool(accepted),
+                            "source_validation": validation}
+            if result.allowed and family in UNTRUSTED_OUTPUT_FAMILIES:
+                # Retrieved text and records are data: instruction-like text is removed before the model reads it.
+                cleaned = gateway.invoke("sanitize_untrusted_content", context, {"content": data, **member})
+                if cleaned.allowed:
+                    data = cleaned.data["content"]
+                    if cleaned.data["sanitized"]:
+                        data = {**data, "content_sanitized": cleaned.data["categories"]}
+            output = {"allowed": result.allowed, "data": data, "reason": result.reason,
                       "audit_id": result.audit_id, "source": "reference"}
             return Command(update={
                 "tool_results": {name: output},

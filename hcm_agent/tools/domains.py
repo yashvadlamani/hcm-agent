@@ -253,7 +253,7 @@ def request_appointment(arguments: dict[str, Any]) -> dict[str, Any]:
 def _escalation_fields(arguments: dict[str, Any]) -> dict[str, Any]:
     """The minimum an escalation record needs: no names, dates of birth, phone numbers or transcripts."""
     kind = arguments.get("kind") if arguments.get("kind") in safety.KINDS else None
-    return {"kind": kind, "reason": str(arguments.get("reason") or "")[:200],
+    return {"kind": kind, "reason": security.redact(str(arguments.get("reason") or ""))[:200],
             "source": arguments.get("source"), "member_id": arguments.get("member_id"),
             "tenant_id": arguments.get("tenant_id"), "call_id": arguments.get("call_id"),
             "queue": safety.queue_for(kind)}
@@ -322,12 +322,13 @@ def apply_tool_allowlist(arguments: dict[str, Any]) -> dict[str, Any]:
 
 def audit_event(arguments: dict[str, Any]) -> dict[str, Any]:
     """Write a short security or operational event to the audit log."""
-    event = _named(arguments, "event")[:120]
-    if not event:
+    described = _named(arguments, "event")
+    if not described:
         return {"recorded": False, "reason": "describe the event"}
+    labelled = security.classify(described)
     log = security.audit_log()
-    entry = log.record("event", event=event, member_id=arguments.get("member_id"),
-                       call_id=arguments.get("call_id"))
+    entry = log.record("event", event=labelled["redacted_text"][:120], sensitivity=labelled["classification"],
+                       member_id=arguments.get("member_id"), call_id=arguments.get("call_id"))
     return {"recorded": True, "audit_id": entry["id"], "durable": log.durable}
 
 
@@ -363,6 +364,65 @@ def apply_circuit_breaker(arguments: dict[str, Any]) -> dict[str, Any]:
     if not dependency or action not in ("check", "success", "failure"):
         return {"allowed": False, "reason": "name a dependency; action is check, success or failure"}
     return {"dependency": dependency, **getattr(security.breaker(dependency), action)()}
+
+
+def classify_sensitive_data(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Label a text by the most sensitive data in it (identifier, health, financial) and return a redacted copy."""
+    return security.classify(str(arguments.get("text", "")), str(arguments.get("member_id") or ""))
+
+
+def detect_prompt_injection(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Detect attempts to override instructions, change roles, extract prompts or data, or bypass safety checks."""
+    return security.detect_injection(str(arguments.get("text", "")))
+
+
+def redact_for_logs(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Return a text with direct identifiers replaced, safe to write to a log."""
+    text = str(arguments.get("text", ""))
+    cleaned = security.redact(text, str(arguments.get("member_id") or ""))
+    return {"text": cleaned[:1000], "redacted": cleaned != text}
+
+
+def minimize_prompt_context(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a call context to what a prompt or tool needs, dropping identifier fields and redacting text."""
+    context = arguments.get("context")
+    if not isinstance(context, dict):
+        return {"context": {}, "purpose": arguments.get("purpose", "tools"), "removed": [],
+                "reason": "a context object is required"}
+    return security.minimize(context, "prompt" if arguments.get("purpose") == "prompt" else "tools")
+
+
+def sanitize_untrusted_content(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Remove instruction-like text from retrieved passages or tool output before a model reads it."""
+    return security.sanitize(arguments["content"] if "content" in arguments else str(arguments.get("text", "")))
+
+
+# The only places retrieved guidance may come from. A passage from anywhere else is dropped.
+RAG_SOURCES = {
+    PLAYBOOK_ID: {"approved": PLAYBOOK_STATUS == "approved", "status": PLAYBOOK_STATUS, "valid_through": None},
+    POLICY_ID: {"approved": True, "status": "member plan document", "valid_through": "2025-12-31"},
+}
+
+
+def validate_rag_source(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Check that retrieved passages come from a registered source, and whether it is approved and current."""
+    source_id, passages = str(arguments.get("source_id") or ""), arguments.get("results") or []
+    source = RAG_SOURCES.get(source_id)
+    if source is None:
+        return {"valid": False, "source_id": source_id, "accepted": [], "rejected": len(passages),
+                "warnings": ["The source is not registered; its passages were dropped."]}
+    accepted = [passage for passage in passages if isinstance(passage, dict) and passage.get("content")
+                and passage.get("policy_id", source_id) == source_id]
+    today = str(arguments.get("today") or datetime.now(timezone.utc).date().isoformat())
+    current = source["valid_through"] is None or today <= source["valid_through"]
+    warnings = []
+    if not source["approved"]:
+        warnings.append(f"This source is not approved for production use (status: {source['status']}).")
+    if not current:
+        warnings.append(f"This source was valid through {source['valid_through']}; details may have changed. "
+                        "Tell the member to confirm with their plan.")
+    return {"valid": True, "source_id": source_id, "approved": source["approved"], "current": current,
+            "accepted": accepted, "rejected": len(passages) - len(accepted), "warnings": warnings}
 
 
 def protect_phi(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -475,6 +535,12 @@ def register_domain_tools() -> list[ToolDefinition]:
         "get_911_or_988_script": get_911_or_988_script,
         "create_urgent_alert": create_urgent_alert,
         "enforce_response_latency": enforce_response_latency,
+        "classify_sensitive_data": classify_sensitive_data,
+        "redact_for_logs": redact_for_logs,
+        "minimize_prompt_context": minimize_prompt_context,
+        "sanitize_untrusted_content": sanitize_untrusted_content,
+        "validate_rag_source": validate_rag_source,
+        "detect_prompt_injection": detect_prompt_injection,
         "authorize_tool_call": authorize_tool_call,
         "enforce_member_scope": enforce_member_scope,
         "apply_tool_allowlist": apply_tool_allowlist,
@@ -494,12 +560,8 @@ def register_domain_tools() -> list[ToolDefinition]:
              for name, handler in direct.items()]
     groups = {
         access_control: ("enforce_role_or_tenant_scope",),
-        protect_phi: (
-            "minimize_prompt_context", "redact_for_logs", "classify_sensitive_data", "apply_retention_policy",
-        ),
-        defend_content: (
-            "detect_prompt_injection", "sanitize_untrusted_content", "validate_rag_source", "apply_output_dlp",
-        ),
+        protect_phi: ("apply_retention_policy",),
+        defend_content: ("apply_output_dlp",),
         operational_control: ("raise_security_incident",),
     }
     for handler, names in groups.items():

@@ -36,6 +36,7 @@ from .. import config
 from ..agent import HCMVoiceAgent
 from ..agent.llm import LLM, create_llm
 from ..call_reasons import CALL_REASONS, call_reason
+from ..tools import security
 from ..workflows.member_data import DEMO_MEMBERS_PATH, identity_record_for_phone, load_demo_members
 from . import live_feed
 from .call_requests import InvalidCallRequest, parse_call_request
@@ -43,6 +44,8 @@ from .outbound import decode_call_context, encode_call_context, to_e164
 from .transcripts import transcript_store
 
 logging.basicConfig(level=logging.INFO)
+for _handler in logging.getLogger().handlers:  # phone numbers and other identifiers never reach the log
+    _handler.addFilter(security.RedactingLogFilter())
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -186,12 +189,15 @@ def on_speech(call_id: str, data: dict) -> None:
         if not _latency_control(state, "start").get("allowed", False):
             return say_and_listen(call_id, clara_says(call_id, RESPONSE_TIMEOUT_REPLY, kind="system"))
         state.silent_turns = 0
-        recorded = ("[Identity answer provided]" if state.agent.phase in ("verify_name", "verify_dob") else said)
-        logger.info("Patient: %s", recorded)
-        live_feed.publish(call_id, "patient", text=recorded, confidence=speech.get("confidence"))
         agent = state.agent
-        sentiment_before, phase_before = agent.sentiment, agent.phase
         audit_start = len(agent.identity_gateway.audit_log)
+        if agent.phase in ("verify_name", "verify_dob"):
+            recorded, redacted = "[Identity answer provided]", False
+        else:  # the dashboard, the saved transcript and the log get a copy without direct identifiers
+            recorded, redacted = shown_text(agent, said)
+        logger.info("Patient: %s", recorded)
+        live_feed.publish(call_id, "patient", text=recorded, confidence=speech.get("confidence"), redacted=redacted)
+        sentiment_before, phase_before = agent.sentiment, agent.phase
         live_feed.publish(call_id, "thinking")
         future = response_executor.submit(agent.take_turn, said)
         state.pending_response = future
@@ -240,6 +246,19 @@ def _latency_control(state: CallState, action: str) -> dict:
     return result.data
 
 
+def shown_text(agent: HCMVoiceAgent, said: str) -> tuple[str, bool]:
+    """What the patient said, with phone numbers, card numbers and other direct identifiers replaced,
+    using the classification tool. The model still receives the original words."""
+    try:
+        result = agent.identity_gateway.invoke("classify_sensitive_data", agent.identity_context, {
+            "text": said, "member_id": agent.identity_context.member_id})
+        if result.allowed and result.data.get("identifier_count"):
+            return result.data["redacted_text"], True
+    except Exception:
+        logger.exception("Could not classify the patient's words; showing them as said")
+    return said, False
+
+
 def tools_used(agent: HCMVoiceAgent, audit_start: int) -> list[dict]:
     """The tools that ran during one turn, from the gateway's audit log: names and allowed/denied only."""
     return [{"tool": entry["tool"], "allowed": entry["allowed"]}
@@ -270,6 +289,8 @@ def _deliver_turn(call_id: str, state: CallState, agent: HCMVoiceAgent, turn, la
     if turn.escalation:
         live_feed.publish(call_id, "escalation", flagged=turn.escalation["flagged"],
                           queue=turn.escalation["queue"], records=turn.escalation["records"])
+    if turn.security:
+        live_feed.publish(call_id, "security", categories=turn.security.get("categories", []))
     if turn.blocked:
         live_feed.publish(call_id, "guardrail", rule=turn.blocked["rule"], blocked_text=turn.blocked["text"])
     if turn.identity:

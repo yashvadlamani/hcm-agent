@@ -321,6 +321,7 @@ function renderCall() {
     } else if (e.type === "patient") {
       const msg = el("div", "msg patient");
       msg.append(el("div", "who", `Patient · ${clock(e.ts)}`), el("div", "bubble", e.text));
+      if (e.redacted) msg.append(el("div", "tag", "Personal identifiers redacted"));
       if (e.confidence !== null && e.confidence !== undefined) {
         const pct = Math.round(e.confidence * 100);
         msg.append(el("div", "tag" + (pct < 60 ? " low" : ""),
@@ -343,6 +344,10 @@ function renderCall() {
       const message = e.kind === "mental_health" ? "the 988 crisis line message" : "the 911 message";
       timeline.append(el("div", "card emergency",
         `${e.kind === "mental_health" ? "Mental health crisis" : "Medical emergency"} detected by ${how}: ${reason}. Clara gave ${message} and ended the call.`));
+    } else if (e.type === "security") {
+      timeline.append(el("div", "card guardrail",
+        `Security: blocked a prompt-injection attempt (${(e.categories || []).join(", ").replaceAll("_", " ")}). ` +
+        "The caller's words were not sent to the model."));
     } else if (e.type === "escalation") {
       const made = Object.entries(e.records || {}).map(([tool, id]) => `${ESCALATION[tool] || tool} ${id}`);
       timeline.append(el("div", "card guardrail", e.flagged

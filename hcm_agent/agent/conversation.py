@@ -20,7 +20,7 @@ from typing import Optional, Tuple
 
 from .. import config
 from ..call_reasons import call_reason
-from ..tools import ToolCallContext, build_default_gateway, safety
+from ..tools import ToolCallContext, build_default_gateway, safety, security
 from ..workflows.member_care import MemberCareGraph
 from .guardrails import GuardrailViolation, VoiceAgentGuardrails
 from .identity import verify_identity_turn
@@ -45,6 +45,10 @@ IDENTITY_UNAVAILABLE = (
     "I'm sorry, I'm having trouble verifying your identity right now, so I can't continue this call. "
     "Please contact your care management team using the number on your member ID card. Thank you. Goodbye."
 )
+
+# Said when the caller's words look like an attempt to take over or probe the assistant. The words
+# never reach the model.
+INJECTION_REPLY = "I can't process that request. Please ask about your care-management support."
 
 REFUSAL_REPLY = ("I'm not able to help with that on this call, but your care team can. "
                  "Is there anything else on your mind today?")
@@ -118,6 +122,7 @@ class Turn:
     spoke_with: Optional[str] = None        # who answered instead, if they gave a name
     callback_time: Optional[str] = None     # when to reach the patient, in the words used
     escalation: Optional[dict] = None       # what was recorded for the care team after an emergency
+    security: Optional[dict] = None         # a blocked prompt-injection attempt: {"blocked", "categories"}
     phase: str = "conversation"             # verify_name, verify_dob, conversation, feedback or ended
     used_model: bool = False
 
@@ -201,7 +206,19 @@ class HCMVoiceAgent:
             "goals_data_status": "fictional_demo_only" if local_demo else
                                  care_management.get("data_status", "not_configured"),
         })
-        return profile
+        return self._minimized(profile, "tools")
+
+    def _minimized(self, context: dict, purpose: str) -> dict:
+        """Pass a context through the minimizing tool before it goes to the model or its tools: only the
+        fields that use needs, no identifier fields, and identifiers in free text redacted."""
+        try:
+            result = self.identity_gateway.invoke("minimize_prompt_context", self.identity_context, {
+                "context": context, "purpose": purpose, "member_id": self.identity_context.member_id})
+            if result.allowed:
+                return result.data["context"]
+        except Exception:
+            logger.exception("The context could not be minimized through the tool")
+        return security.minimize(context, purpose)["context"]
 
     # ---- The turn ----
 
@@ -243,12 +260,20 @@ class HCMVoiceAgent:
             self._remember(said, closing)
             return self._start_closing("Patient's needs addressed", closing)
 
-        # 5. Ask the model.
+        # 5. Block prompt-injection attempts before the model sees them. The words stay out of the history.
+        injection = self._injection_attempt(said)
+        if injection:
+            self._remember("[Blocked request]", INJECTION_REPLY)
+            turn = self._reply(INJECTION_REPLY)
+            turn.security = injection
+            return turn
+
+        # 6. Ask the model.
         self.conversation_history.append({"role": "user", "content": said})
         try:
             raw = self.care_graph.respond(
                 self.llm, self.identity_context, self._care_tool_profile(),
-                get_system_prompt(self.patient_context), self.conversation_history,
+                get_system_prompt(self._minimized(self.patient_context, "prompt")), self.conversation_history,
                 verified=self.identity == "confirmed",
             )
         except Exception as e:
@@ -292,11 +317,34 @@ class HCMVoiceAgent:
 
     # ---- Steps ----
 
+    def _injection_attempt(self, said: str) -> Optional[dict]:
+        """Check the caller's words with the prompt-injection tool before any model sees them.
+        Returns what was found when they are unsafe, and records the block in the audit log."""
+        member = {"member_id": self.identity_context.member_id}
+        try:
+            checked = self.identity_gateway.invoke("detect_prompt_injection", self.identity_context,
+                                                   {"text": said, **member})
+            if not checked.allowed or checked.data.get("safe") is not False:
+                return None
+            categories = checked.data.get("categories", [])
+            self.identity_gateway.invoke("record_policy_decision", self.identity_context, {
+                "policy": "prompt_injection", "outcome": "blocked", "reason": ", ".join(categories),
+                "call_id": self.patient_context.get("call_id"), **member})
+            logger.warning("Prompt injection blocked (%s)", ", ".join(categories))
+            return {"blocked": True, "categories": categories}
+        except Exception:
+            logger.exception("The prompt-injection check failed; continuing with the other safeguards")
+            return None
+
     def _verify_identity(self, said: str) -> Turn:
         """Name then DOB, through the identity family; a failed check ends the call."""
         name_step = self.phase == "verify_name"
-        verified, reason = verify_identity_turn(self.llm, self.identity_gateway, self.identity_context,
-                                                self.identity_record, self.phase, said)
+        injection = self._injection_attempt(said)
+        if injection:  # never hand an instruction-like answer to the model that reviews verification
+            verified, reason = False, "prompt_injection"
+        else:
+            verified, reason = verify_identity_turn(self.llm, self.identity_gateway, self.identity_context,
+                                                    self.identity_record, self.phase, said)
         recorded = "[Full name provided]" if name_step else "[Date of birth provided]"
         if not verified:
             self.identity_gateway.invoke("record_verification_failure", self.identity_context,
@@ -306,7 +354,7 @@ class HCMVoiceAgent:
             self._remember(recorded, reply)
             end_reason = "Identity verification unavailable" if unavailable else "Identity verification failed"
             turn = self._end_opening("failed", end_reason, reply)
-            turn.used_model = True
+            turn.used_model, turn.security = injection is None, injection
             return turn
         if name_step:
             self.phase = "verify_dob"
