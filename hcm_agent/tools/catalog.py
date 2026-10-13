@@ -194,8 +194,11 @@ def build_tools(*, families=CARE_FAMILIES):
                 arguments["_retrieval_llm"] = retrieval_llm
             bound = {**arguments, **profile, "text": query, "statement": query, **prerequisites,
                      "member_id": context.member_id}
-            if name == "get_911_or_988_script":
-                bound["kind"] = results.get("assess_emergency", {}).get("data", {}).get("kind")
+            if family == "safety" and name != "assess_emergency":
+                # Escalation tools act on the assessment, never on a kind or reason the model supplies.
+                assessed = results.get("assess_emergency", {}).get("data", {})
+                bound.update(kind=assessed.get("kind"), reason=assessed.get("reason", ""),
+                             source=assessed.get("source"), tenant_id=context.tenant_id)
             result = gateway.invoke(name, context, bound)
             output = {"allowed": result.allowed, "data": result.data, "reason": result.reason,
                       "audit_id": result.audit_id, "source": "reference"}

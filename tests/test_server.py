@@ -309,7 +309,11 @@ def test_live_feed_tracks_sentiment_from_neutral(client, model):
 def test_live_feed_records_emergency(client):
     connect(client)
     speak(client, "I'm having chest pain")
-    assert event_types()[-3:] == ["emergency", "clara", "call_ended"]
+    assert event_types()[-4:] == ["emergency", "escalation", "clara", "call_ended"]
+    escalation = next(e for e in live_feed.history() if e["type"] == "escalation")
+    assert escalation["flagged"] is True and escalation["queue"] == "nurse-triage"
+    assert set(escalation["records"]) == {"create_urgent_alert", "create_clinical_review_task",
+                                          "create_safety_follow_up"}
     emergency = next(e for e in live_feed.history() if e["type"] == "emergency")
     assert emergency["source"] == "keyword"
 
@@ -350,3 +354,41 @@ def test_live_view_requires_password_when_configured(client, monkeypatch):
     assert client.get("/live", headers={**proxied, **basic_auth("wrong")}).status_code == 401
     assert client.get("/live/events", headers=proxied).status_code == 401
     assert client.get("/live", headers={**proxied, **basic_auth("correct-horse")}).status_code == 200
+
+
+# ---- Local test chat (clara-interactive-chat) ----
+
+@pytest.fixture
+def chat(client, monkeypatch):
+    monkeypatch.setattr(server, "LOCAL_CHAT", True)
+    monkeypatch.setattr(server, "acs", lambda: server.LocalPhone())
+    monkeypatch.setattr(server, "identity_record_for_phone", lambda phone: {
+        "name": "Yash Patel", "date_of_birth": "1990-01-02", "member_id": "m1", "tenant_id": "test"})
+    monkeypatch.setattr(server, "local_members", lambda: [{
+        "member_id": "m1", "name": "Yash Patel", "date_of_birth": "1990-01-02", "phone": "+15555550100",
+        "demo_call_context": {"for": "diabetes management", "risk_drivers": ["Missed refills"]}}])
+    return client
+
+
+def test_local_chat_is_off_unless_started_by_the_command(client):
+    assert client.get("/chat/config").status_code == 404
+    assert client.post("/chat/start", json={"member_id": "m1"}).status_code == 404
+
+
+def test_local_chat_runs_a_typed_call_through_the_phone_handlers(chat):
+    [member] = chat.get("/chat/config").get_json()["members"]
+    assert member["name"] == "Yash Patel" and member["risk_drivers"] == ["Missed refills"]
+    call = chat.post("/chat/start", json={"member_id": "m1"}).get_json()["call"]
+    assert call.startswith("local-") and call in server.calls
+    assert server.calls[call].agent.patient_context["local_demo_context"] is True
+    assert chat.post("/chat/say", json={"call": call, "text": "I'm having chest pain"}).status_code == 202
+    assert [e["type"] for e in live_feed.history()][-4:] == ["emergency", "escalation", "clara", "call_ended"]
+    said = [e for e in live_feed.history() if e["type"] == "clara"][-1]
+    assert [t["tool"] for t in said["tools"]][:3] == ["assess_emergency", "route_member_distress",
+                                                      "create_urgent_alert"]
+    assert all(t["allowed"] for t in said["tools"]) and "enforce_response_latency" not in str(said["tools"])
+    assert chat.post("/chat/say", json={"call": call, "text": "Hello?"}).status_code == 409
+
+
+def test_local_chat_rejects_an_unknown_member(chat):
+    assert chat.post("/chat/start", json={"member_id": "nobody"}).status_code == 400

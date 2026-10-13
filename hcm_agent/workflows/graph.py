@@ -37,11 +37,11 @@ def _latest_caller_statement(state: AgentState) -> str:
     return ""
 
 
-def _blocked_response(reply: str, *, emergency=False, kind="none") -> AIMessage:
+def _blocked_response(reply: str, *, emergency=False, kind="none", reason="") -> AIMessage:
     return AIMessage(content=json.dumps({
         "reply": reply,
         "emergency": {"detected": emergency, "type": kind if emergency else "none",
-                      "reason": reply if emergency else ""},
+                      "reason": (reason or "described urgent symptoms") if emergency else ""},
         "sentiment": 0.1 if emergency else 0.5,
         "conversation_state": "patient_done" if emergency else "ongoing",
     }))
@@ -79,7 +79,7 @@ def _safety_guard(state: AgentState) -> dict:
     })
     return {"blocked": True, "messages": [_blocked_response(
         script.data.get("script", "Please call 911 now."), emergency=True,
-        kind=assessment.data.get("kind") or "medical",
+        kind=assessment.data.get("kind") or "medical", reason=assessment.data.get("reason", ""),
     )]}
 
 

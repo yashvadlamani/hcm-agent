@@ -4,6 +4,8 @@ import re
 from enum import Enum
 from typing import Tuple
 
+from ..tools import safety
+
 
 class GuardrailViolation(Enum):
     """Types of guardrail violations."""
@@ -83,18 +85,9 @@ class VoiceAgentGuardrails:
         r"\bi (promise|guarantee)\b",
     ]
 
-    # Emergency keywords: an instant safety net that runs before the model's own clinical assessment.
-    EMERGENCY_KEYWORDS = [
-        "chest pain", "difficulty breathing", "shortness of breath",
-        "severe headache", "sudden vision loss", "loss of consciousness",
-        "severe bleeding", "unbearable pain",
-        "call 911", "go to emergency", "go to hospital immediately"
-    ]
-    MENTAL_HEALTH_KEYWORDS = [
-        "suicidal", "suicide", "kill myself", "end my life", "ending my life", "want to die", "hurt myself",
-        "self harm", "self-harm", "don't see the point of going on", "don't see the point in going on",
-        "no reason to live", "not worth living", "better off dead", "better off without me", "can't go on",
-    ]
+    # The emergency keyword net lives in tools/safety.py, shared with the safety tools.
+    EMERGENCY_KEYWORDS = safety.EMERGENCY_KEYWORDS
+    MENTAL_HEALTH_KEYWORDS = safety.MENTAL_HEALTH_KEYWORDS
 
     def __init__(self):
         self.diagnosis_regex = [re.compile(p, re.IGNORECASE) for p in self.DIAGNOSIS_PATTERNS]
@@ -148,21 +141,5 @@ class VoiceAgentGuardrails:
         Check if patient statement indicates emergency or distress.
         Returns: (is_emergency, description)
         """
-        statement_lower = statement.lower()
-
-        for keyword in self.MENTAL_HEALTH_KEYWORDS:
-            if keyword in statement_lower:
-                return True, f"Mental health crisis: {keyword}"
-
-        for keyword in self.EMERGENCY_KEYWORDS:
-            if keyword in statement_lower:
-                return True, f"Emergency detected: {keyword}"
-
-        # Severe distress indicators. ("help me" was removed: "can you help me with my refills" is an
-        # ordinary request. The model's clinical assessment judges distress in context instead.)
-        distress_keywords = ["can't breathe", "cannot breathe", "i'm dying", "severe pain"]
-        for keyword in distress_keywords:
-            if keyword in statement_lower:
-                return True, f"Patient distress: {keyword}"
-
-        return False, ""
+        kind, description = safety.classify(statement)
+        return kind is not None, description

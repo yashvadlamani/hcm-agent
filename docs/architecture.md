@@ -76,14 +76,18 @@ Each event is acknowledged immediately and handled in the background, so a slow 
    - **The model's clinical assessment:** it recognizes, in everyday words, severe low blood sugar (shaking, confusion, sweating), diabetic ketoacidosis (vomiting, fruity breath), stroke and heart-attack signs, breathing trouble, and suicidal thoughts.
    - **Azure's content-safety filter:** when it blocks a message as self-harm, Clara treats it as a mental-health crisis, never brushes it off.
 
-Every blocked reply and emergency appears on the live dashboard, including which layer caught it.
+4. **Escalation, through the safety tools** ([`tools/safety.py`](../hcm_agent/tools/safety.py)): whichever layer catches an emergency, the same six tools run. They confirm the emergency and its kind, choose the care-team queue (nurse triage or behavioral-health crisis), and record an **urgent alert**, a **clinical review task** and a **safety follow-up** due the next business day. The last tool returns Clara's fixed 911 or 988 wording. She says *"I'm also flagging this call for your care team"* only when the alert was actually recorded, and a failure to record never delays or blocks the emergency message.
+
+   Records hold the kind, a short reason, the member ID, the call ID and the queue: no names, dates of birth, phone numbers or transcripts. They are **recorded, not dispatched**: no care-team system is connected yet, so someone has to read the log, the dashboard or the webhook channel. See [Operations](./operations.md#emergency-escalations).
+
+Every blocked reply, emergency and escalation appears on the live dashboard, including which layer caught it.
 
 ## Live dashboard
 
 The `/live` page shows each call as it happens:
 - **Turns:** what the patient said (with speech-recognition confidence) and Clara's replies, with timings.
 - **Sentiment:** how satisfied the patient seems with the call at that moment, not how hard their situation is. It starts at 0.50 (neutral) and updates every turn. It shows a score, a label (Dissatisfied below 0.35, Satisfied above 0.65), and a trend line, all in the panel at the top of the call. Each reading is smoothed (60% new, 40% previous) so one remark doesn't swing it.
-- **Guardrails and emergencies:** blocked replies, and emergencies with the reason and which layer caught them.
+- **Guardrails and emergencies:** blocked replies, and emergencies with the reason and which layer caught them, followed by what was recorded for the care team (queue and record IDs).
 - **Endings:** how each call ended, and whether the patient asked for the feedback form.
 - **Who answered:** whether the patient confirmed their identity, or who answered instead and the good time to call back.
 
@@ -96,7 +100,7 @@ The feedback answer is recorded but no text is sent yet: the ACS trial number ca
 | [`hcm_agent/config.py`](../hcm_agent/config.py) | Every setting, read from the environment or `.env`, checked at startup |
 | [`hcm_agent/agent/`](../hcm_agent/agent/) | The conversation: `conversation.py` (call state and guardrail enforcement), `llm.py` (Azure OpenAI or Claude), `prompts.py`, `guardrails.py` |
 | [`hcm_agent/workflows/`](../hcm_agent/workflows/) | Native LangGraph model/tool loop, mandatory pre-call authorization, and verified-member care |
-| [`hcm_agent/tools/`](../hcm_agent/tools/) | Domain tool contracts and the gateway that enforces actor, tenant, purpose, scope, and member boundaries |
+| [`hcm_agent/tools/`](../hcm_agent/tools/) | Domain tool contracts and the gateway that enforces actor, tenant, purpose, scope, and member boundaries; `safety.py` holds the emergency keywords, fixed emergency wording and the escalation log. [`STATUS.md`](../hcm_agent/tools/STATUS.md) says which tools are real |
 | [`hcm_agent/telephony/`](../hcm_agent/telephony/) | Calls: `server.py` (ACS events, `/live`), `outbound.py` (legacy and policy-authorized dialing), `call_requests.py` (request validation), `live_feed.py` and `static/live.html` (dashboard) |
 | [`hcm_agent/cli/`](../hcm_agent/cli/) | `clara-call` (place a call) and `clara-chat` (talk to Clara in the terminal) |
 | [`hcm_agent/azure_functions/`](../hcm_agent/azure_functions/) | The call-request Azure Function, deployed separately |

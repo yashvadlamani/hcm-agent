@@ -23,6 +23,19 @@ Running Clara day to day: the environment, health checks, turning it on and off,
 3. **Deploys:** the README badges, or the **Actions** tab, are green.
 4. **End to end:** upload a request for a number that isn't on the allow-list. It should land in `failed/` within seconds, and no call is placed.
 
+## Emergency escalations
+
+When Clara detects an emergency she gives the 911 or 988 message, ends the call, and records three things for the care team: an urgent alert, a clinical review task and a safety follow-up.
+
+| Where to see them | Notes |
+|---|---|
+| Live dashboard | A card under the emergency, with the queue and record IDs. Clears when the server restarts |
+| Server log | Lines starting `ESCALATION ESC-…`. Always on |
+| A file on the server | Set `ESCALATION_LOG_PATH`, for example `/home/clara/escalations.jsonl` (on App Service, `/home` survives restarts). One JSON record per line |
+| A Teams or Slack channel | Set `ESCALATION_WEBHOOK_URL` to an incoming-webhook address. Each urgent alert is posted there, in the background |
+
+Both settings go in `.env`; re-run `deploy.ps1` to apply them. **Nothing pages or calls anyone:** these are records, so until a real care-team system is connected, someone must watch one of the places above. The webhook message includes the member ID and the reason for the emergency, so only point it at a channel approved for that information.
+
 ## Turning Clara on and off
 
 | To | Run |

@@ -59,6 +59,16 @@ class CareOutreachGraph:
         arguments = {**asdict(request), "outreach_purpose": "care_management"}
         outcome = OutreachResult(False, "blocked", "preflight was not completed")
 
+        def decided(result: OutreachResult) -> OutreachResult:
+            """Keep the pre-call decision in the audit log. A logging failure never changes the decision."""
+            try:
+                self.gateway.invoke("record_policy_decision", context, {
+                    "policy": "pre_call_outreach", "outcome": "allowed" if result.allowed else "blocked",
+                    "reason": result.reason, "member_id": request.member_id})
+            except Exception:
+                pass
+            return result
+
         @tool
         def authorize_outreach() -> dict:
             """Check eligibility, consent, local time and contact; authorize only when all pass."""
@@ -74,15 +84,16 @@ class CareOutreachGraph:
                 result = self.gateway.invoke(name, context, {**arguments, **evidence})
                 audit.append(result.audit_id)
                 if not result.allowed or result.data.get(decision_field) is not True:
-                    outcome = OutreachResult(False, "blocked", result.reason or result.data.get("reason", name),
-                                             audit_ids=tuple(audit))
+                    outcome = decided(OutreachResult(False, "blocked",
+                                                     result.reason or result.data.get("reason", name),
+                                                     audit_ids=tuple(audit)))
                     return {"allowed": False, "reason": outcome.reason}
                 evidence[key] = True
             authorization = result.data["authorization"]
             setup = self.gateway.invoke("configure_voice_and_asr", context,
                                         {"language": request.language, **request.accessibility})
-            outcome = OutreachResult(True, "ready_to_dial", "all checks passed", authorization,
-                                     setup.data, tuple([*audit, setup.audit_id]))
+            outcome = decided(OutreachResult(True, "ready_to_dial", "all checks passed", authorization,
+                                             setup.data, tuple([*audit, setup.audit_id])))
             return {"allowed": True, "ready_to_dial": True}
 
         llm = self.llm or create_llm(config.load())

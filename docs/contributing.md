@@ -40,7 +40,9 @@ main ──▶ your branch ──▶ pull request ──▶ CI + review ──�
 Changes here need extra care, and a clinical or compliance reviewer before production:
 
 - [`hcm_agent/agent/prompts.py`](../hcm_agent/agent/prompts.py): what Clara may and may not say
-- [`hcm_agent/agent/guardrails.py`](../hcm_agent/agent/guardrails.py): reply and emergency checks
+- [`hcm_agent/agent/guardrails.py`](../hcm_agent/agent/guardrails.py): reply checks
+- [`hcm_agent/tools/safety.py`](../hcm_agent/tools/safety.py): emergency keywords, Clara's fixed 911 and 988 wording, and the escalation log
+- [`hcm_agent/agent/conversation.py`](../hcm_agent/agent/conversation.py): the emergency path (`_emergency_turn`, `_escalate`), which must always end with the emergency message
 - [`hcm_agent/telephony/server.py`](../hcm_agent/telephony/server.py): emergency handling during calls
 - [`hcm_agent/telephony/outbound.py`](../hcm_agent/telephony/outbound.py) and [`hcm_agent/azure_functions/function_app.py`](../hcm_agent/azure_functions/function_app.py): who may be called (allow-list and rate limit)
 
