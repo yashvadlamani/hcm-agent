@@ -133,6 +133,7 @@ def test_model_service_failure_ends_call():
     agent.initialize_call({}, identity_record=RECORD)
     turn = agent.take_turn("Himanshu")
     assert turn.action == "hang_up" and turn.end_reason == "Identity verification unavailable"
+    assert turn.developer_error == "RuntimeError"
     assert agent.identity_gateway.audit_log[-1]["tool"] == "record_verification_failure"
 
 

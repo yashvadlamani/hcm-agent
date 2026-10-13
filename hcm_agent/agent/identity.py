@@ -4,6 +4,7 @@ import logging
 
 from ..tools import ToolCallContext, ToolGateway
 from ..tools.catalog import DOBAnswer, NameAnswer
+from ..observability import traced_operation
 
 logger = logging.getLogger(__name__)
 
@@ -57,17 +58,19 @@ def verify_identity_turn(llm, gateway: ToolGateway, context: ToolCallContext,
         expected = ({"expected_name": record.get("name", ""), "allow_first_name": True,
                      "spoken_answer": answer} if name_step else
                     {"expected_dob": record.get("date_of_birth", "")})
-        result = gateway.invoke(name, context, {**arguments, **expected, "member_id": context.member_id})
+        with traced_operation(f"execute_tool {name}", kind="tool", capability="Capability 3 · Identity", tool=name):
+            result = gateway.invoke(name, context, {**arguments, **expected, "member_id": context.member_id})
         return {"allowed": result.allowed, **result.data,
                 "verification_scope": "name_step_only" if name_step else "dob_step_only",
                 "next_step_if_passed": "ask_dob" if name_step else "care_conversation"}
 
     try:
-        reviewed = llm.call_and_review_tool(IDENTITY_PROMPT, payload, tool, execute)
+        with traced_operation("invoke_agent capability_3_identity", kind="agent", capability="Capability 3 · Identity"):
+            reviewed = llm.call_and_review_tool(IDENTITY_PROMPT, payload, tool, execute)
     except Exception as error:
         # Exception bodies may contain raw API request text, so retain only the error type.
         logger.warning("Identity %s failed: %s", name, type(error).__name__)
-        return False, "identity_service_error"
+        return False, f"identity_service_error:{type(error).__name__}"
     passed = bool(result and result.allowed and result.data.get("verified") is True and reviewed is True)
     reason = "verified" if passed else "identity_mismatch"
     logger.info("Identity tool=%s tool_verified=%s model_verified=%s decision=%s", name,

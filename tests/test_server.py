@@ -1,4 +1,5 @@
 import dataclasses
+from concurrent.futures import Future
 from types import SimpleNamespace
 
 import pytest
@@ -6,6 +7,7 @@ from azure.communication.callautomation import PhoneNumberIdentifier
 
 from hcm_agent.agent.conversation import FEEDBACK_QUESTION, HCMVoiceAgent
 from hcm_agent.telephony import live_feed, server
+from hcm_agent.telephony.transcripts import TranscriptStore
 from test_config import VALID
 from test_conversation import ScriptedLLM, turn_json
 
@@ -49,6 +51,18 @@ class RunNow:
         fn(*args)
 
 
+class CompletedFutureExecutor:
+    """Keep phone-turn tests synchronous while production uses the response pool."""
+
+    def submit(self, fn, *args):
+        future = Future()
+        try:
+            future.set_result(fn(*args))
+        except Exception as error:
+            future.set_exception(error)
+        return future
+
+
 @pytest.fixture
 def model():
     """The scripted model behind every call's real HCMVoiceAgent. Tests queue its responses."""
@@ -56,7 +70,7 @@ def model():
 
 
 @pytest.fixture
-def acs(monkeypatch, model):
+def acs(monkeypatch, model, tmp_path):
     fake = FakeACS()
     monkeypatch.setattr(server, "HCMVoiceAgent", lambda **_: HCMVoiceAgent(settings=VALID, llm=model))
     monkeypatch.setattr(server, "shared_llm", lambda: model)
@@ -66,6 +80,8 @@ def acs(monkeypatch, model):
     monkeypatch.setattr(server, "settings", dataclasses.replace(VALID, phone_webhook_key=KEY))
     monkeypatch.setattr(server, "acs", lambda: fake)
     monkeypatch.setattr(server, "executor", RunNow())
+    monkeypatch.setattr(server, "response_executor", CompletedFutureExecutor())
+    monkeypatch.setattr(server, "transcript_store", TranscriptStore(tmp_path / "transcripts.sqlite3"))
     monkeypatch.setattr(server, "identity_record_for_phone", lambda phone: {
         "name": "Yash Patel", "date_of_birth": "1990-01-02", "member_id": "m1", "tenant_id": "test"})
     server.calls.clear()
@@ -82,6 +98,16 @@ def send(client, event_type, key=KEY, ctx="", **data):
     body = [{"type": f"Microsoft.Communication.{event_type}", "data": {"callConnectionId": CALL, **data}}]
     query = f"?ctx={ctx}" if ctx else ""
     return client.post(f"/acs/{key}/events{query}", json=body).status_code
+
+
+def test_live_event_ingest_accepts_local_cli_dashboard_events(client):
+    response = client.post("/live/events", json={
+        "call": "cli-test", "type": "call_started",
+        "data": {"name": "CLI Demo", "drivers": [], "reason": "demo", "sentiment": 0.5},
+    })
+
+    assert response.status_code == 204
+    assert next(event for event in live_feed.history() if event["call"] == "cli-test")["type"] == "call_started"
 
 
 def connect(client, name="Yash", drivers=(), confirm=True, reason=""):
@@ -184,10 +210,11 @@ def test_ai_emergency_without_keywords_ends_the_call(client, acs, model):
     assert "low blood sugar" in emergency["reason"]
 
 
-def test_goodbye_offers_the_feedback_form_then_ends(client, acs):
+def test_model_decided_goodbye_offers_the_feedback_form_then_ends(client, acs, model):
+    model.responses = [turn_json("I'm glad I could help.", state="patient_done")]
     connect(client)
     speak(client, "That's all, goodbye.")
-    assert acs.last() == ("listen", FEEDBACK_QUESTION, PATIENT)
+    assert acs.last() == ("listen", f"I'm glad I could help. {FEEDBACK_QUESTION}", PATIENT)
     assert CALL in server.calls
 
     speak(client, "Yes please.")
@@ -254,7 +281,7 @@ def test_call_uses_the_reason_from_the_request(client, acs):
 
 
 def test_live_feed_records_a_conversation(client, model):
-    model.responses = [turn_json(REPLY, sentiment=0.2)]
+    model.responses = [turn_json(REPLY, sentiment=0.2), turn_json("I'm glad I could help.", state="patient_done")]
     connect(client)
     speak(client, "I'm feeling stressed.", confidence=0.42)
     speak(client, "That's all, goodbye.")
@@ -269,6 +296,29 @@ def test_live_feed_records_a_conversation(client, model):
     ]
     patient = next(e for e in live_feed.history() if e["type"] == "patient" and e["text"] == "I'm feeling stressed.")
     assert patient["confidence"] == 0.42
+
+
+def test_live_history_returns_completed_call_after_disconnect(client):
+    connect(client)
+    assert send(client, "CallDisconnected") == 200
+
+    saved = client.get("/live/history").get_json()["calls"]
+    assert saved[0]["call"] == CALL
+    assert saved[0]["events"][-1]["type"] == "call_ended"
+
+
+def test_live_history_deletes_only_selected_completed_calls(client):
+    server.transcript_store.save("saved-1", [{"type": "call_started", "name": "One", "ts": 1},
+                                              {"type": "call_ended", "ts": 2}])
+    server.transcript_store.save("saved-2", [{"type": "call_started", "name": "Two", "ts": 3},
+                                              {"type": "call_ended", "ts": 4}])
+    live_feed.publish("saved-1", "call_ended")
+
+    response = client.delete("/live/history", json={"call_ids": ["saved-1"]})
+
+    assert response.get_json() == {"deleted": ["saved-1"]}
+    assert [record["call"] for record in server.transcript_store.recent()] == ["saved-2"]
+    assert all(event["call"] != "saved-1" for event in live_feed.history())
 
 
 def test_live_feed_tracks_sentiment_from_neutral(client, model):

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..tools import ToolCallContext, ToolGateway, build_default_gateway
-from ..tools.catalog import TOOL_POLICY, build_tools
+from ..tools.catalog import TOOL_POLICY
 
 
 @dataclass(frozen=True)
@@ -51,8 +51,11 @@ class MemberCareGraph:
         self.llm = llm
 
     def respond(self, llm, context, profile, system_prompt, messages, *, verified):
-        tools = build_tools(self.gateway, context, profile, verified=verified)
-        return llm.complete(system_prompt + "\n" + TOOL_POLICY, messages, json_mode=True, tools=tools)
+        tool_context = {"gateway": self.gateway, "context": context, "profile": profile,
+                        "verified": verified, "retrieval_llm": getattr(llm, "model", None)}
+        # The capability graph constructs its own named tool sets from tools/tools.py.
+        return llm.complete(system_prompt + "\n" + TOOL_POLICY, messages, json_mode=True, tools=(),
+                            tool_context=tool_context, capability_graph=True)
 
     def handle_turn(self, request: MemberTurnRequest, actor_id="conversation-orchestrator") -> MemberTurnResult:
         """Standalone entry point, sharing the same identity and care tools as live calls."""
