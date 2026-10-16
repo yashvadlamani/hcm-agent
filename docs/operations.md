@@ -12,7 +12,8 @@ Running Clara day to day: the environment, health checks, turning it on and off,
 | Call-request function | `clara-hcm-agent-calls` |
 | Call-request storage | Container `call-requests`, with folders `incoming/`, `processed/` and `failed/` |
 | Phone calls | Azure Communication Services `clara-acs-<id>`, trial number |
-| Model | Azure OpenAI deployment `clara-chat` (`gpt-5-mini`) |
+| Model | Azure OpenAI deployment `clara-chat` (`gpt-5-mini`): replies, the per-turn safety check, identity and pre-call checks |
+| Search indexes | Built locally under `data/vectorstore/` (plan document, playbook, provider directory); not deployed automatically |
 | Secrets | Key Vault `clara-kv-<id>` |
 | Hosting tier | App Service Free (F1) |
 
@@ -36,6 +37,10 @@ When Clara detects an emergency she gives the 911 or 988 message, ends the call,
 
 Both settings go in `.env`; re-run `deploy.ps1` to apply them. **Nothing pages or calls anyone:** these are records, so until a real care-team system is connected, someone must watch one of the places above. The webhook message includes the member ID and the reason for the emergency, so only point it at a channel approved for that information.
 
+## Audit log
+
+Every tool call (tool name, allowed or denied, member ID, never the details) and every policy decision (pre-call check, blocked prompt-injection attempt) is written to the audit log. It is kept in memory and, when `AUDIT_LOG_PATH` is set, appended to a JSON-lines file, for example `/home/clara/audit.jsonl`. `TOOL_CALLS_PER_MINUTE` (default 120) limits ordinary tool calls per call; emergency and identity tools are never limited. The audit log, rate limits and circuit breakers are per process and reset on restart.
+
 ## Turning Clara on and off
 
 | To | Run |
@@ -53,7 +58,7 @@ Both settings go in `.env`; re-run `deploy.ps1` to apply them. **Nothing pages o
 az webapp log tail --resource-group clara-rg --name <app>
 ```
 
-The server log shows every call event (`ACS CallConnected`, `RecognizeCompleted`…), each turn, Clara's replies with timings, and the full transcript when a call ends. For the function, open **Function app → call_request → Invocations**.
+The server log shows every call event (`ACS CallConnected`, `RecognizeCompleted`…), each turn, Clara's replies with timings, and the full transcript when a call ends. Phone numbers, emails, card numbers and similar identifiers are redacted from every log line before it is written. Escalations appear as `ESCALATION ESC-…` lines and blocked attempts as `Prompt injection blocked`. For the function, open **Function app → call_request → Invocations**.
 
 ## Keys and secrets
 

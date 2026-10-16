@@ -15,8 +15,8 @@
 
 1. **A call request is uploaded:** a small JSON file with the patient's number, name, the reason for the call and risk drivers.
 2. **An Azure Function validates it** (allow-list, format, hourly limit) and asks **Azure Communication Services** to dial.
-3. **The Clara server runs the conversation.** Each turn, the patient's speech is transcribed, Azure OpenAI drafts a reply, and safety guardrails check it before Clara speaks.
-4. **The care team watches live** on a password-protected web page.
+3. **The Clara server runs the conversation.** Clara first verifies the patient's name and date of birth. Then, each turn, the patient's speech is transcribed and run through a LangGraph graph of capability agents: a security check (prompt injection) and a safety check (emergencies) come first, then the care model answers, looking up the plan document, diabetes playbook or provider directory when needed. Guardrails check the reply before Clara speaks, and any emergency is escalated to the care team.
+4. **The care team watches live** on a password-protected dashboard that shows the transcript, the tools used on each turn, satisfaction, response times and any blocked attempts or escalations.
 
 More detail: [Architecture](./docs/architecture.md).
 
@@ -26,17 +26,23 @@ More detail: [Architecture](./docs/architecture.md).
 |---|---|
 | Live two-way phone conversations (Azure Communication Services, Azure AI Speech) | ✅ Live |
 | Replies personalized to the patient: their own words, the reason for the call and their risk drivers (Azure OpenAI or Claude) | ✅ Live |
-| Safety guardrails: no diagnoses, no medical advice, no medication changes, no promises | ✅ Live |
-| Emergency detection from context (clinical knowledge) plus keywords; 911 or the 988 crisis line | ✅ Live |
-| Identity check before anything health-related; callback time noted if someone else answers | ✅ Live |
+| Safety guardrails: no diagnoses, no medical advice, no medication changes (promises: prompt instruction only) | ✅ Live |
+| Emergency detection: keywords, a model-based safety check every turn, and Azure's content filter; 911 or the 988 crisis line | ✅ Live |
+| Emergency escalation records for the care team: urgent alert, clinical review task, safety follow-up | ✅ Recorded (not yet sent to a care-team system) |
+| Identity check (name and date of birth) before anything health-related | ✅ Live |
+| LangGraph capability agents with typed tools behind a permission and audit gateway | ✅ Live |
+| Security checks: prompt-injection blocking, personal-data redaction, context minimizing, audit log, rate limits, checked and cleaned search results (13 of 17 security tools) | ✅ Working drafts |
 | Natural call endings ("anything else?") with a feedback-form opt-in | ✅ Live |
 | Live score (0–1) of how satisfied the patient seems with the call, on the dashboard | ✅ Live |
 | Start calls by uploading a JSON file (Azure Functions + Event Grid) | ✅ Live |
-| Live call dashboard with guardrail and emergency alerts | ✅ Live |
+| Live call dashboard with tools per turn, response times, guardrail, security and emergency cards | ✅ Live |
+| Local test chat in the browser: a full typed call with no phone or call minutes | ✅ Live |
+| On-demand automated PR review (comment `/review`) | ✅ Live |
 | Secrets in Azure Key Vault; automated tests and deploys (GitHub Actions) | ✅ Live |
 | Policy-gated outreach workflow (consent, DNC, calling hours, authorization) | ✅ Reference implementation |
-| Care-manager escalation and follow-up tasks | 🚧 Planned |
-| Answers grounded in approved clinical content (RAG) | 🚧 Planned |
+| Answers from the plan document and diabetes playbook (local search) | ✅ Demo content |
+| Delivering escalations and follow-up tasks to a care-team system | 🚧 Planned |
+| Answers grounded in clinically approved content | 🚧 Planned |
 | HIPAA-ready production environment (BAA, purchased number, audit logging) | 🚧 Planned |
 
 ## Technology
@@ -45,6 +51,9 @@ More detail: [Architecture](./docs/architecture.md).
 |---|---|
 | Phone calls, speech-to-text, text-to-speech | Azure Communication Services · Azure AI Speech |
 | Conversation | Azure OpenAI (`gpt-5-mini`) or Anthropic Claude, with rule-based guardrails |
+| Agents and tools | LangChain · LangGraph |
+| Search | Chroma with FastEmbed (BGE-small) embeddings, local |
+| Observability | OpenTelemetry tracing of agents and tools |
 | Application | Python 3.12 · Flask on Azure App Service |
 | Call requests | Azure Functions (Flex Consumption) · Blob Storage · Event Grid |
 | Security | Azure Key Vault · managed identities |
@@ -56,8 +65,9 @@ More detail: [Architecture](./docs/architecture.md).
 git clone https://github.com/yashvadlamani/hcm-agent.git && cd hcm-agent
 python -m pip install -e ".[dev]"     # app, test tools and the clara-* commands
 cp config/.env.example .env           # fill in your keys and phone settings
-pytest                                # 84 tests, no keys or network needed
+pytest                                # no keys or network needed
 clara-chat demo                       # a sample conversation in the terminal
+clara-interactive-chat                # a full typed call in the browser (needs model settings)
 ```
 
 To set up Azure and place your first real call, follow [Setup and deployment](./docs/setup.md).
@@ -79,17 +89,18 @@ To set up Azure and place your first real call, follow [Setup and deployment](./
 ```
 hcm-agent/
 ├── hcm_agent/              # Everything Clara runs on
-│   ├── agent/              #   Conversation: prompts, model backends, guardrails
-│   ├── workflows/          #   Named policy graphs: eligibility → authorization → setup
-│   ├── tools/              #   Tool gateway and business-domain tool contracts
-│   ├── telephony/          #   Calls: ACS event server, outbound calls, live dashboard
-│   ├── cli/                #   clara-chat and clara-call
+│   ├── agent/              #   Conversation: prompts, model backends, guardrails, identity check
+│   ├── workflows/          #   LangGraph: capability-agent graph, pre-call policy, member care
+│   ├── tools/              #   Tool gateway, tool catalog, safety and security tools, search
+│   ├── telephony/          #   Calls: ACS event server, outbound calls, live dashboard, transcripts
+│   ├── cli/                #   clara-chat, clara-interactive-chat and clara-call
 │   ├── azure_functions/    #   Azure Function: JSON upload → phone call
 │   └── deploy/             #   Deploy, start and stop scripts for Azure
 ├── tests/                  # Automated tests
 ├── config/                 # .env.example: every setting, documented
-├── docs/                   # Six documents (see above)
-└── .github/                # CI, automatic deploys, PR template
+├── data/                   # Demo members, plan document, playbook, provider directory, test-call transcripts
+├── docs/                   # Architecture, setup, operations, roadmap and more (see above)
+└── .github/                # CI, automatic deploys, on-demand PR review, PR template
 ```
 
 ## Contributing and security

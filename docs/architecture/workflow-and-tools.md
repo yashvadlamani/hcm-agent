@@ -51,8 +51,9 @@ supplied PDF, whose plan-owner approval status has not been verified. Provider e
 demo data and must not be used for real care navigation. In explicit local demo mode, appointment
 requests can reserve a simulated weekday slot in bounded process memory, with weekend/unavailable
 dates returning actual next-slot dates. They are never sent to a clinic or booked in a real scheduler.
-Phone requests, human-review, and urgent-alert tools report `not_configured` until real adapters are
-connected. No successful bookings are claimed.
+Phone requests report `not_configured` until a real adapter is connected, and no successful bookings
+are claimed. The safety tools (urgent alert, clinical review task, safety follow-up) keep real
+escalation records; see [Emergency escalation](#emergency-escalation).
 
 The care family includes `get_safe_outreach_brief` and `get_approved_goals`. LangChain exposes both
 as no-argument tools, so the model can select them but cannot provide or alter member facts. The
@@ -82,6 +83,42 @@ is prohibited in the system prompt and checked by deterministic response guardra
 not approved for production clinical use until an appropriate owner reviews it. The local Chroma
 directory is ignored by Git and is not currently a managed or shared production vector database.
 
+## Security and safety around every turn
+
+Each conversation turn passes these checks, in order. All of them run in code through the tool gateway,
+so they appear in the audit log and in the dashboard's tools-per-turn line.
+
+| Step | Where | What happens |
+|---|---|---|
+| Keyword emergency check | `conversation.py` | An instant match ("chest pain") ends the turn with the emergency message, with no model call |
+| `detect_prompt_injection` | `conversation.py` | An attempt gets a fixed reply, is kept out of the history, and is recorded as a policy decision |
+| `minimize_prompt_context` | `conversation.py` | Twice: the prompt gets only the fields it reads, and the care tools get no identifier fields |
+| Security guard | `graph.py` | `detect_prompt_injection` again, inside the graph, on every pass |
+| Safety guard | `graph.py` | One model safety check per turn, validated by `assess_emergency`, which also applies the keyword list |
+| `validate_rag_source` | `catalog.py` | After a playbook or policy lookup: only registered sources pass, with approval and date warnings |
+| `sanitize_untrusted_content` | `catalog.py` | After care, guidance and navigation tools: instruction-like text is removed before the model reads it |
+| Guardrails | `guardrails.py` | The reply is checked for diagnoses, medical advice and medication changes |
+
+The gateway (`gateway.py`) also writes every tool call to the audit log and limits ordinary tools to
+`TOOL_CALLS_PER_MINUTE` calls per call; emergency and identity tools are never limited.
+
+## Emergency escalation
+
+Any emergency, from any layer, ends in `HCMVoiceAgent._escalate`, which runs the safety family in a fixed
+order: `assess_emergency`, `route_member_distress`, `create_urgent_alert`, `create_clinical_review_task`,
+`create_safety_follow_up`, then `get_911_or_988_script` for Clara's fixed words. Records go to the
+escalation log in `tools/safety.py`. A recording failure never blocks the emergency message. When the
+model calls these tools itself, the kind and reason come from a prior `assess_emergency` result.
+Details: [`tools/safety.md`](../../hcm_agent/tools/safety.md).
+
+## Structured replies
+
+Each care turn must come back as one JSON object: Clara's reply, the emergency assessment, the
+satisfaction score and the conversation state. Azure OpenAI requests ask for JSON mode on every model
+call (conversation, safety check, identity and pre-call checks). It is sent as `extra_body`, because
+LangChain's own `response_format` option refuses requests that offer tools unless every tool is strict.
+If the model still writes its reply in front of the JSON, the parser speaks the text and never the JSON.
+
 ## Live identity verification
 
 Clara introduces herself and asks for a name. GPT invokes the name tool through LangGraph, then reviews
@@ -107,12 +144,14 @@ Policies stay deterministic; model interpretation never substitutes for consent.
 ## Usage and verification
 
 Identity uses one tool round plus model review. General care allows at most three tool rounds,
-then a final response. No external tracing/checkpointer is enabled by this implementation.
-LangChain model clients allow one retry and a 30-second timeout.
+then a final response. Agents and tools are traced with OpenTelemetry (`hcm_agent/observability.py`);
+no checkpointer is enabled. LangChain model clients use a 15-second timeout with no automatic retry,
+matching the phone server's 15-second response deadline.
 
-Only the five offline migration tests were run:
-`python -m pytest tests/test_langgraph.py -q`.
-No live GPT/ACS tests or deployment were performed.
+The full offline suite runs in CI (`pytest -q`). `tests/test_tool_scenario.py` runs one scripted call
+through the server, graph and gateway and checks that all 19 safety and security tools run. Typed calls
+have been run against the real model in the local test chat; a real phone call and an Azure deployment
+of this version have not.
 
 Framework references: [LangGraph workflows](https://docs.langchain.com/oss/python/langgraph/workflows-agents),
 [LangChain tools](https://docs.langchain.com/oss/python/langchain/tools),
