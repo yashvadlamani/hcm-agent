@@ -4,9 +4,9 @@ import json
 import logging
 from typing import Optional, Protocol
 
+from langchain.tools import tool as langchain_tool
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import SystemMessage
-from langchain.tools import tool as langchain_tool
 from langchain_openai import ChatOpenAI
 
 from ..config import Settings, llm_problems, require

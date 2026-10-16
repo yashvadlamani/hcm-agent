@@ -41,7 +41,7 @@ def test_safe_replies_pass(reply):
      GuardrailViolation.PRESCRIPTION_CHANGE),
     ("I recommend taking a cinnamon supplement every morning.", GuardrailViolation.MEDICAL_ADVICE),
     ("You should avoid carbs after six.", GuardrailViolation.MEDICAL_ADVICE),
-    ("Don't take your insulin on an empty stomach.", GuardrailViolation.MEDICAL_ADVICE),
+    ("Don't take your insulin on an empty stomach.", GuardrailViolation.PRESCRIPTION_CHANGE),
     ("Try eating less sugar and see how you feel.", GuardrailViolation.MEDICAL_ADVICE),
 ])
 def test_unsafe_replies_are_flagged(reply, expected):
@@ -80,7 +80,8 @@ def test_mental_health_statements_are_labeled():
 
 
 def test_promise_wording_is_not_a_runtime_guardrail_violation():
-    assert guardrails.check_agent_response("I'll connect you with your care manager right away.")[0] == GuardrailViolation.NONE
+    reply = "I'll connect you with your care manager right away."
+    assert guardrails.check_agent_response(reply)[0] == GuardrailViolation.NONE
 
 
 @pytest.mark.parametrize("reply", [

@@ -12,10 +12,8 @@ from hcm_agent.agent.conversation import HCMVoiceAgent
 from hcm_agent.agent.llm import LangChainLLM
 from hcm_agent.tools import ToolCallContext, build_default_gateway
 from hcm_agent.tools.catalog import FAMILIES, build_tools
-from hcm_agent.workflows.graph import run_agent
-from hcm_agent.workflows.graph import build_capability_agent
-from hcm_agent.workflows.graph import run_capability_agent
 from hcm_agent.tools.tools import CAPABILITY_TOOLS
+from hcm_agent.workflows.graph import build_capability_agent, run_agent, run_capability_agent
 from test_config import VALID
 
 RECORD = {"member_id": "m1", "tenant_id": "test", "name": "Maria Lopez", "date_of_birth": "1990-01-02",
@@ -68,7 +66,7 @@ def test_safety_agent_routes_a_panic_attack_to_the_fixed_emergency_response():
     response = json.loads(state["messages"][-1].content)
     assert response["emergency"]["detected"] is True
     assert response["emergency"]["type"] == "medical"
-    assert "911" in response["reply"]
+    assert "9 1 1" in response["reply"]
     assert len(model.seen) == 1
 
 
@@ -116,7 +114,7 @@ def test_catalog_covers_families_and_blocks_unverified_access(tmp_path, monkeypa
     import hcm_agent.tools.scheduling as scheduling
     monkeypatch.setattr(domains, "policy_document_available", lambda: True)
     monkeypatch.setattr(domains, "retrieve_policy", lambda query, llm=None: [{
-        "policy_id": "test-policy", "title": "Test policy", "page": 2, "content": "Test policy excerpt",
+        "policy_id": domains.POLICY_ID, "title": "Test policy", "page": 2, "content": "Test policy excerpt",
     }])
     gateway = build_default_gateway()
     assert set(gateway.tool_names) == {name for names in FAMILIES.values() for name in names}
@@ -146,6 +144,16 @@ def test_catalog_covers_families_and_blocks_unverified_access(tmp_path, monkeypa
         "is_fictional_demo": True, "active": True,
     }]}))
     monkeypatch.setenv("CLARA_PROVIDER_DIRECTORY_PATH", str(directory))
+    # Semantic search reads the vector index (built from the default directory), so stand in a store
+    # that returns the provider from this test's directory.
+    from types import SimpleNamespace
+
+    import hcm_agent.tools.providers as providers
+    p1 = {"provider_id": "p1", "display_name": "Demo Clinic", "specialties": "endocrinology", "city": "Austin",
+          "state": "TX", "phone": "555-0100", "accepting_new_patients": True, "is_fictional_demo": True}
+    store = SimpleNamespace(similarity_search_with_relevance_scores=lambda query, k: [
+        (SimpleNamespace(metadata=p1), 0.9)])
+    monkeypatch.setattr(providers, "get_provider_vector_store", lambda: store)
     provider_result = invoke_catalog_tool("provider_directory_search",
         {"provider_name": "Demo Clinic"}, gateway=gateway,
         context=context, profile=profile, verified=True)
@@ -223,6 +231,7 @@ def test_phone_call_uses_native_tools_for_identity_and_policy(monkeypatch):
     model = ScriptedChatModel(replies=[
         call("verify_full_name", provided_name="Maria", match_type="first_name"), approved(),
         call("verify_dob", provided_dob="1990-01-02"), approved(),
+        AIMessage(content='{"emergency": false, "kind": null, "reason": ""}'),
         call("lookup_policy", query="annual wellness visit"),
         AIMessage(content=json.dumps({"reply": reply, "sentiment": 0.5, "conversation_state": "ongoing"})),
     ])

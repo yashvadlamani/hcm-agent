@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable
 
-
 ToolHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
 

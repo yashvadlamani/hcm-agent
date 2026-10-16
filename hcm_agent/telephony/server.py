@@ -214,7 +214,8 @@ def on_speech(call_id: str, data: dict) -> None:
         # Play only a prompt here (not recognition), so the same patient turn remains in progress.
         clara_says(call_id, RESPONSE_FILLER, kind="system", latency_notice=True)
         try:
-            acs().get_call_connection(call_id).play_media_to_all(speech(RESPONSE_FILLER), operation_context="latency_filler")
+            acs().get_call_connection(call_id).play_media_to_all(speech(RESPONSE_FILLER),
+                                                                 operation_context="latency_filler")
             turn = future.result(timeout=RESPONSE_DEADLINE_SECONDS - RESPONSE_FILLER_SECONDS)
         except TimeoutError:
             _latency_control(state, "timeout")
@@ -295,7 +296,8 @@ def _deliver_turn(call_id: str, state: CallState, agent: HCMVoiceAgent, turn, la
     if trace_entries:
         live_feed.publish(call_id, "agent_trace", entries=trace_entries)
     if (turn.used_model and phase_before == "conversation") or turn.sentiment != sentiment_before:
-        live_feed.publish(call_id, "sentiment", value=turn.sentiment, change=round(turn.sentiment - sentiment_before, 2))
+        live_feed.publish(call_id, "sentiment", value=turn.sentiment,
+                          change=round(turn.sentiment - sentiment_before, 2))
     if turn.emergency:
         live_feed.publish(call_id, "emergency", kind=turn.emergency.kind, source=turn.emergency.source,
                           reason=turn.emergency.reason)

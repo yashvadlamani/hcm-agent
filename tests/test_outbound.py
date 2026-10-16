@@ -6,8 +6,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from hcm_agent.telephony.outbound import (
-    CallNotAuthorized,
     CallNotAllowed,
+    CallNotAuthorized,
     check_allowed,
     decode_call_context,
     encode_call_context,
@@ -15,8 +15,8 @@ from hcm_agent.telephony.outbound import (
     place_policy_authorized_call,
     to_e164,
 )
-from test_config import VALID
 from hcm_agent.workflows import OutreachResult
+from test_config import VALID
 
 
 class FakeACS:

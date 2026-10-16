@@ -288,11 +288,11 @@ def test_live_feed_records_a_conversation(client, model):
     speak(client, "No thanks.")
     assert event_types() == [
         "call_started", "clara",
-        "patient", "thinking", "clara",
-        "patient", "thinking", "identity", "clara",
-        "patient", "thinking", "sentiment", "clara",
-        "patient", "thinking", "closing", "clara",
-        "patient", "thinking", "clara", "feedback", "call_ended",
+        "patient", "thinking", "agent_trace", "clara",
+        "patient", "thinking", "agent_trace", "identity", "clara",
+        "patient", "thinking", "agent_trace", "sentiment", "clara",
+        "patient", "thinking", "agent_trace", "sentiment", "closing", "clara",
+        "patient", "thinking", "agent_trace", "clara", "feedback", "call_ended",
     ]
     patient = next(e for e in live_feed.history() if e["type"] == "patient" and e["text"] == "I'm feeling stressed.")
     assert patient["confidence"] == 0.42

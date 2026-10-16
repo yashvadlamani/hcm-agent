@@ -26,15 +26,18 @@ def sample_events(now: float | None = None) -> list[dict]:
     add(12, "patient", text="My name is Taylor Demo.", confidence=0.96)
     add(13, "identity", status="confirmed", spoke_with="Taylor Demo")
     add(14, "clara", kind="opening", latency=0.8,
-        text="Thank you. For verification, could you please tell me your date of birth, including the month, day, and year?")
+        text="Thank you. For verification, could you please tell me your date of birth, "
+             "including the month, day, and year?")
     add(27, "patient", text="January 2, 1990.", confidence=0.94)
     add(29, "clara", kind="opening", latency=1.1,
         text="Thank you for verifying your identity. How have you been feeling lately?")
-    add(43, "patient", text="I have been doing okay, but scheduling routine visits has been difficult.", confidence=0.91)
+    add(43, "patient", text="I have been doing okay, but scheduling routine visits has been difficult.",
+        confidence=0.91)
     add(43, "thinking")
     add(45, "sentiment", value=0.58, change=0.08)
     add(45, "clara", kind="reply", latency=1.9,
-        text="Finding time for routine visits can be difficult. Is there a day or time that tends to work best for you?")
+        text="Finding time for routine visits can be difficult. "
+             "Is there a day or time that tends to work best for you?")
     add(62, "patient", text="Weekday mornings are usually easier for me.", confidence=0.93)
     add(62, "thinking")
     add(64, "sentiment", value=0.68, change=0.10)
@@ -51,12 +54,14 @@ def sample_events(now: float | None = None) -> list[dict]:
          "tool": "", "source": "", "duration_ms": 3, "success": True, "at": started + 64, "turn": 4},
         {"name": "invoke_agent care_model", "kind": "agent", "capability": "Care model",
          "tool": "", "source": "", "duration_ms": 480, "success": True, "at": started + 64, "turn": 4},
-        {"name": "execute_tool provider_directory_search", "kind": "tool", "capability": "Capability 6 · Care navigation",
+        {"name": "execute_tool provider_directory_search", "kind": "tool",
+         "capability": "Capability 6 · Care navigation",
          "tool": "provider_directory_search", "source": "Provider directory", "duration_ms": 18, "success": True,
          "at": started + 64, "turn": 4},
     ])
     add(64, "clara", kind="closing", latency=1.6,
-        text="Weekday mornings are a useful preference to note for your care team. Would you like a short feedback form by text message?")
+        text="Weekday mornings are a useful preference to note for your care team. "
+             "Would you like a short feedback form by text message?")
     add(79, "patient", text="Yes, please.", confidence=0.98)
     add(79, "thinking")
     add(80, "sentiment", value=0.82, change=0.14)

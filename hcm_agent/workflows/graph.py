@@ -193,7 +193,8 @@ def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3, mo
 def run_capability_agent(model, system_prompt: str, messages, *, max_rounds=3, tool_context=None,
                          capability_stage="care", model_options=None):
     """Run Clara's main capability graph for one verified care turn."""
-    with traced_operation("invoke_workflow clara_capability_graph", kind="workflow", capability="Clara capability graph"):
+    with traced_operation("invoke_workflow clara_capability_graph", kind="workflow",
+                          capability="Clara capability graph"):
         graph = build_capability_agent(model, system_prompt, max_rounds=max_rounds, model_options=model_options)
         context = {**(tool_context or {}), "capability_stage": capability_stage}
         return graph.invoke({"messages": messages, "rounds": 0, "tool_context": context,
