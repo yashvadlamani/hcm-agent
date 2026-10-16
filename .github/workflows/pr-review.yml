@@ -1,0 +1,72 @@
+name: PR review
+
+# Reviews a pull request with Azure OpenAI when someone with write access comments `/review` on it.
+# It reads the diff through the GitHub API and never checks out or runs the PR's code, so it is safe
+# for pull requests from forks. It only posts comments. Setup and tuning: docs/contributing.md.
+#
+# Needs repository secrets AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY and AZURE_OPENAI_DEPLOYMENT.
+# Comment-triggered workflows always run the copy of this file on the default branch (main).
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: pr-review-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/review') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      github.event.comment.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Acknowledge the request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api -X POST "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions"
+          -f content=eyes --silent
+
+      # The reviewer itself comes from the default branch, never from the pull request.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/pr-review
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install "openai>=1.40,<3"
+
+      - name: Review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ secrets.AZURE_OPENAI_DEPLOYMENT }}
+          REVIEW_REASONING_EFFORT: ${{ vars.REVIEW_REASONING_EFFORT || 'low' }}
+        run: python .github/pr-review/review.py
+
+      - name: Report a failure on the pull request
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api -X POST "repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments"
+          -f body="The automated review could not run. See the workflow log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          --silent
