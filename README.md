@@ -11,14 +11,35 @@
 
 ## How it works
 
-![Current workflow: a JSON upload to Azure storage triggers an Azure Function, which asks Azure Communication Services to call the patient; the Clara server on App Service runs the conversation with Azure OpenAI and guardrails.](./docs/workflow.svg)
+![How Clara works in eight layers: a JSON upload starts the call; the Clara server handles speech; the conversation moves through pre-call policy, identity check and per-turn checks; LangGraph runs a security guard, a safety guard, the care model and its tools; every tool call passes the tool gateway; tools read the plan document, playbook and provider directory; guardrails check each reply and emergencies are escalated; the care team watches on the live dashboard.](./docs/workflow.svg)
 
-1. **A call request is uploaded:** a small JSON file with the patient's number, name, the reason for the call and risk drivers.
-2. **An Azure Function validates it** (allow-list, format, hourly limit) and asks **Azure Communication Services** to dial.
-3. **The Clara server runs the conversation.** Clara first verifies the patient's name and date of birth. Then, each turn, the patient's speech is transcribed and run through a LangGraph graph of capability agents: a security check (prompt injection) and a safety check (emergencies) come first, then the care model answers, looking up the plan document, diabetes playbook or provider directory when needed. Guardrails check the reply before Clara speaks, and any emergency is escalated to the care team.
-4. **The care team watches live** on a password-protected dashboard that shows the transcript, the tools used on each turn, satisfaction, response times and any blocked attempts or escalations.
+Clara is built in eight layers. Each patient turn moves down through them, and Clara's reply goes back up to the phone.
 
-More detail: [Architecture](./docs/architecture.md).
+| # | Layer | What happens | Where |
+|---|---|---|---|
+| 1 | **Start a call** | The care team uploads a small JSON file (number, name, reason for the call, risk drivers). An Azure Function checks the allow-list, the format and the hourly limit, then asks Azure Communication Services to dial. | `azure_functions/` |
+| 2 | **Call** | The Clara server on App Service receives call events. Azure AI Speech turns the patient's speech into text and Clara's replies into speech. The local test chat replaces the phone with a typed call in the browser. | `telephony/` |
+| 3 | **Conversation** | A call has three phases. **Agents 1–2** (outreach, communication) check consent, do-not-call and calling hours before dialing. **Agent 3** (identity) confirms the name, then the date of birth, before anything health-related. In the care phase, every turn first gets an emergency keyword check, a prompt-injection check and context minimizing, so the model sees only what it needs. | `agent/conversation.py`, `workflows/outreach.py` |
+| 4 | **LangGraph agents** | Each turn runs through a graph: **8 · Security guard** (prompt injection), **7 · Safety guard** (a model-based emergency check), then the **care model** (Azure OpenAI `gpt-5-mini`, JSON replies). The care model can call **tools 4 · 5 · 6** (care context, knowledge and policy, navigation). After each tool call the graph goes back through both guards. | `workflows/graph.py`, `tools/tools.py` |
+| 5 | **Tool gateway** | Every tool call is checked against an allow-list, limited to the current member, rate-limited, protected by a circuit breaker and written to the audit log. Lookup results are checked against registered sources, and instruction-like text is removed before the model reads them. | `tools/gateway.py`, `tools/security.py` |
+| 6 | **Data** | The tools search the plan document and the diabetes playbook (Chroma with BGE-small embeddings, local), the fictional provider directory, and demo member and schedule data. | `tools/policy.py`, `tools/playbook.py`, `data/` |
+| 7 | **Reply or escalate** | Guardrails check every reply for diagnoses, medical advice and medication changes before Clara speaks. An emergency from any layer (keywords, the safety guard or Azure's content filter) gets the fixed 911 or 988 message, and the **safety tools** record an urgent alert, a clinical review task and a follow-up for the care team. | `agent/guardrails.py`, `tools/safety.py` |
+| 8 | **Watch and run** | The care team watches calls on a password-protected live dashboard: the transcript, tools used on each turn, satisfaction, response times, and blocked-attempt and emergency cards. Transcripts, the audit log and escalation records are kept; OpenTelemetry traces the agents and tools. Secrets live in Key Vault; GitHub Actions tests and deploys. | `telephony/static/live.html` |
+
+**The eight agents and their tools**
+
+| Agent | Tools | Status |
+|---|---|---|
+| 1 · Outreach | Eligibility, consent and do-not-call, calling hours, contact check, call authorization, call attempt record | Reference implementation |
+| 2 · Communication | Language, accessibility and contact preferences, voice settings, interpreter, starting the call | Reference implementation |
+| 3 · Identity | `verify_full_name`, `verify_dob` (live); one-time code, low speech confidence, authorized representative, failure record | Name and date of birth live; others reference |
+| 4 · Care context | `get_safe_outreach_brief`, `get_approved_goals` | Live (demo content) |
+| 5 · Knowledge and policy | `search_diabetes_playbook`, `lookup_policy` | Live (draft content) |
+| 6 · Navigation | `provider_directory_search`, `request_appointment` | Demo data, not booked for real |
+| 7 · Safety and escalation | `assess_emergency`, `route_member_distress`, `create_urgent_alert`, `create_clinical_review_task`, `create_safety_follow_up`, `get_911_or_988_script` | Live; records not yet sent to a care-team system |
+| 8 · Security and audit | Prompt-injection detection, redaction, context minimizing, source checks, cleaning search results, allow-list, member scope, rate limits, circuit breaker, audit log (13 of 17) | Working drafts |
+
+More detail: [Architecture](./docs/architecture.md) and [Workflow and tools](./docs/architecture/workflow-and-tools.md).
 
 ## Capabilities
 

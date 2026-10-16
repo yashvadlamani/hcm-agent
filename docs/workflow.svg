@@ -1,121 +1,115 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1260" height="700" viewBox="0 0 1260 700" role="img" font-family="'Segoe UI', -apple-system, Helvetica, Arial, sans-serif">
-  <title>Current workflow</title>
-  <desc>A care team member uploads a JSON call request to Azure Blob storage. An Azure Function validates it and asks Azure Communication Services to call the patient. Azure Communication Services speaks and listens on the call and sends call events to the Clara server on App Service, which gets replies from Azure OpenAI and streams the call to the live view. Key Vault holds secrets for the apps, and GitHub Actions tests and deploys the code.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 940" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <title>How Clara works: layers, agents and tools</title>
   <defs>
-    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M2 1L8 5L2 9" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#555"/>
     </marker>
     <style>
-      .title { font-size: 22px; font-weight: 600; fill: #2C2C2A; }
-      .subtitle { font-size: 13px; fill: #5F5E5A; }
-      .th { font-size: 14px; font-weight: 600; }
-      .ts { font-size: 12px; }
-      .azure rect { fill: #E1F5EE; stroke: #0F6E56; }
-      .azure .th { fill: #085041; } .azure .ts { fill: #0F6E56; }
-      .tool rect { fill: #F1EFE8; stroke: #888780; }
-      .tool .th { fill: #2C2C2A; } .tool .ts { fill: #5F5E5A; }
-      .arr { stroke: #5F5E5A; stroke-width: 1.2; fill: none; }
-      .code { font-family: Consolas, 'SFMono-Regular', Menlo, monospace; font-size: 11.5px; fill: #2C2C2A; }
-      .key { fill: #3C3489; } .str { fill: #085041; }
-      .legend { font-size: 12px; fill: #5F5E5A; }
+      .band{fill:#f7f8fa}
+      .num{font-size:22px;font-weight:700;fill:#0078d4}
+      .lbl{font-size:13px;font-weight:600;fill:#222}
+      .lbs{font-size:11px;fill:#666}
+      .t{font-size:13px;font-weight:600;fill:#1b1b1b;text-anchor:middle}
+      .s{font-size:11px;fill:#444;text-anchor:middle}
+      .az{fill:#e6f0fb;stroke:#0078d4;stroke-width:1.4}
+      .ag{fill:#f1ecfb;stroke:#6b4fbb;stroke-width:1.4}
+      .sf{fill:#fdecea;stroke:#c62828;stroke-width:1.4}
+      .dt{fill:#e8f5e9;stroke:#2e7d32;stroke-width:1.4}
+      .nu{fill:#fff;stroke:#888;stroke-width:1.4}
+      .ln{stroke:#555;stroke-width:1.5;fill:none;marker-end:url(#a)}
+      .dl{stroke:#555;stroke-width:1.5;fill:none;stroke-dasharray:5 4;marker-end:url(#a)}
     </style>
   </defs>
+  <rect width="1000" height="940" fill="#ffffff"/>
 
-  <rect x="0" y="0" width="1260" height="700" rx="16" fill="#FFFFFF"/>
-  <text class="title" x="30" y="40">Current workflow</text>
-  <text class="subtitle" x="30" y="62">Clara: from a JSON upload to a guarded patient call, all in Azure</text>
+  <text x="20" y="30" font-size="18" font-weight="700" fill="#1b1b1b">How Clara works: layers, agents and tools</text>
+  <text x="20" y="50" font-size="12" fill="#555">From a call request to a guarded, audited conversation. Everything runs in Azure resource group clara-rg.</text>
+  <rect x="600" y="38" width="12" height="12" class="az"/><text x="617" y="48" font-size="11" fill="#444">Azure / app</text>
+  <rect x="690" y="38" width="12" height="12" class="ag"/><text x="707" y="48" font-size="11" fill="#444">Agent</text>
+  <rect x="750" y="38" width="12" height="12" class="sf"/><text x="767" y="48" font-size="11" fill="#444">Safety / security</text>
+  <rect x="860" y="38" width="12" height="12" class="dt"/><text x="877" y="48" font-size="11" fill="#444">Data</text>
+  <rect x="915" y="38" width="12" height="12" class="nu"/><text x="932" y="48" font-size="11" fill="#444">People</text>
 
-  <g transform="translate(0,60)">
-    <!-- Sample request -->
-    <rect x="30" y="86" width="400" height="309" rx="10" fill="#FAFAF8" stroke="#B4B2A9" stroke-width="1"/>
-    <text class="th" x="50" y="112" fill="#2C2C2A">Sample request</text>
-    <text class="ts" x="50" y="131" fill="#5F5E5A">Upload to call-requests / incoming / john-doe.json</text>
-    <line x1="50" y1="144" x2="410" y2="144" stroke="#D3D1C7" stroke-width="1"/>
-    <text class="code" xml:space="preserve" x="50" y="166">{</text>
-    <text class="code" xml:space="preserve" x="50" y="185">  <tspan class="key">"to"</tspan>: <tspan class="str">"1-XXX-XXX-XXXX"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="204">  <tspan class="key">"name"</tspan>: <tspan class="str">"John Doe"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="223">  <tspan class="key">"for"</tspan>: <tspan class="str">"diabetes management"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="242">  <tspan class="key">"risk_drivers"</tspan>: [</text>
-    <text class="code" xml:space="preserve" x="50" y="261">    <tspan class="str">"HbA1c above 7.5% at last check"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="280">    <tspan class="str">"Missed metformin refills in the last 60 days"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="299">    <tspan class="str">"No endocrinologist visit in over 12 months"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="318">    <tspan class="str">"ER visit for low blood sugar in last 90 days"</tspan>,</text>
-    <text class="code" xml:space="preserve" x="50" y="337">    <tspan class="str">"Overdue annual diabetic eye exam"</tspan></text>
-    <text class="code" xml:space="preserve" x="50" y="356">  ]</text>
-    <text class="code" xml:space="preserve" x="50" y="375">}</text>
+  <!-- 1 Start a call -->
+  <rect x="10" y="60" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="98" class="num">1</text><text x="44" y="96" class="lbl">Start a call</text>
+  <text x="22" y="118" class="lbs">JSON upload</text>
+  <rect x="160" y="85" width="140" height="58" rx="8" class="nu"/><text x="230" y="109" class="t">Care team</text><text x="230" y="127" class="s">Uploads a JSON request</text>
+  <rect x="330" y="85" width="140" height="58" rx="8" class="az"/><text x="400" y="109" class="t">Blob storage</text><text x="400" y="127" class="s">call-requests/incoming</text>
+  <rect x="500" y="85" width="140" height="58" rx="8" class="az"/><text x="570" y="109" class="t">Azure Function</text><text x="570" y="127" class="s">Allow-list, format, limit</text>
+  <rect x="670" y="85" width="140" height="58" rx="8" class="az"/><text x="740" y="109" class="t">Communication</text><text x="740" y="127" class="s">Services dials</text>
+  <rect x="840" y="85" width="140" height="58" rx="8" class="nu"/><text x="910" y="109" class="t">Patient</text><text x="910" y="127" class="s">Takes the call</text>
+  <path d="M300 114H328" class="ln"/><path d="M470 114H498" class="ln"/><path d="M640 114H668" class="ln"/><path d="M810 114H838" class="ln"/>
 
-    <!-- Azure boundary -->
-    <rect x="650" y="30" width="436" height="536" rx="16" fill="none" stroke="#888780" stroke-width="1" stroke-dasharray="6 5"/>
-    <text class="th" x="868" y="58" text-anchor="middle" fill="#2C2C2A">Microsoft Azure</text>
-    <text class="ts" x="868" y="76" text-anchor="middle" fill="#5F5E5A">Resource group clara-rg</text>
+  <!-- 2 Call -->
+  <rect x="10" y="168" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="206" class="num">2</text><text x="44" y="204" class="lbl">Call</text>
+  <text x="22" y="226" class="lbs">Speech in and out</text>
+  <rect x="160" y="193" width="140" height="58" rx="8" class="nu"/><text x="230" y="217" class="t">Local test chat</text><text x="230" y="235" class="s">Typed call, no phone</text>
+  <rect x="330" y="193" width="300" height="58" rx="8" class="az"/><text x="480" y="217" class="t">Clara server (App Service, Flask)</text><text x="480" y="235" class="s">Call events, turn handling, transcripts</text>
+  <rect x="670" y="193" width="310" height="58" rx="8" class="az"/><text x="825" y="217" class="t">Communication Services + AI Speech</text><text x="825" y="235" class="s">Speech to text, text to speech</text>
+  <path d="M300 222H328" class="dl"/><path d="M632 222H668" class="ln" marker-start="url(#a)"/>
 
-    <g class="azure">
-      <rect x="668" y="90" width="192" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="764" y="113" text-anchor="middle">Blob storage</text>
-      <text class="ts" x="764" y="132" text-anchor="middle">call-requests / incoming</text>
-    </g>
-    <g class="azure">
-      <rect x="668" y="190" width="192" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="764" y="213" text-anchor="middle">Azure Function</text>
-      <text class="ts" x="764" y="232" text-anchor="middle">Validates, places call</text>
-    </g>
-    <g class="azure">
-      <rect x="668" y="290" width="192" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="764" y="313" text-anchor="middle">Clara server</text>
-      <text class="ts" x="764" y="332" text-anchor="middle">App Service + guardrails</text>
-    </g>
-    <g class="azure">
-      <rect x="668" y="390" width="192" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="764" y="413" text-anchor="middle">Azure OpenAI</text>
-      <text class="ts" x="764" y="432" text-anchor="middle">gpt-5-mini replies</text>
-    </g>
-    <g class="azure">
-      <rect x="668" y="490" width="192" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="764" y="513" text-anchor="middle">Key Vault</text>
-      <text class="ts" x="764" y="532" text-anchor="middle">Secrets for the apps</text>
-    </g>
-    <g class="azure">
-      <rect x="896" y="190" width="172" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="982" y="213" text-anchor="middle">Communication</text>
-      <text class="ts" x="982" y="232" text-anchor="middle">Services: calls, speech</text>
-    </g>
+  <!-- 3 Conversation -->
+  <rect x="10" y="276" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="314" class="num">3</text><text x="44" y="312" class="lbl">Conversation</text>
+  <text x="22" y="334" class="lbs">Call phases</text>
+  <rect x="160" y="301" width="210" height="58" rx="8" class="ag"/><text x="265" y="325" class="t">Pre-call policy (agents 1–2)</text><text x="265" y="343" class="s">Consent, do-not-call, hours</text>
+  <rect x="400" y="301" width="240" height="58" rx="8" class="ag"/><text x="520" y="325" class="t">Identity check (agent 3)</text><text x="520" y="343" class="s">Name, then date of birth</text>
+  <rect x="670" y="301" width="310" height="58" rx="8" class="sf"/><text x="825" y="325" class="t">Checks on every turn</text><text x="825" y="343" class="s">Emergency keywords · injection · minimize context</text>
+  <path d="M370 330H398" class="ln"/><path d="M640 330H668" class="ln"/>
 
-    <g class="tool">
-      <rect x="470" y="90" width="150" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="545" y="113" text-anchor="middle">Care team</text>
-      <text class="ts" x="545" y="132" text-anchor="middle">Uploads JSON</text>
-    </g>
-    <g class="tool">
-      <rect x="470" y="290" width="150" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="545" y="313" text-anchor="middle">Live view</text>
-      <text class="ts" x="545" y="332" text-anchor="middle">Watch calls (/live)</text>
-    </g>
-    <g class="tool">
-      <rect x="470" y="440" width="150" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="545" y="463" text-anchor="middle">GitHub Actions</text>
-      <text class="ts" x="545" y="482" text-anchor="middle">Tests, deploys</text>
-    </g>
-    <g class="tool">
-      <rect x="1116" y="190" width="120" height="56" rx="8" stroke-width="1"/>
-      <text class="th" x="1176" y="213" text-anchor="middle">Patient</text>
-      <text class="ts" x="1176" y="232" text-anchor="middle">Takes the call</text>
-    </g>
+  <!-- 4 LangGraph agents -->
+  <rect x="10" y="384" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="422" class="num">4</text><text x="44" y="420" class="lbl">LangGraph agents</text>
+  <text x="22" y="440" class="lbs">One pass per turn</text>
+  <rect x="160" y="409" width="170" height="58" rx="8" class="sf"/><text x="245" y="433" class="t">8 · Security guard</text><text x="245" y="451" class="s">Prompt-injection check</text>
+  <rect x="370" y="409" width="170" height="58" rx="8" class="sf"/><text x="455" y="433" class="t">7 · Safety guard</text><text x="455" y="451" class="s">Model emergency check</text>
+  <rect x="580" y="409" width="200" height="58" rx="8" class="ag"/><text x="680" y="433" class="t">Care model</text><text x="680" y="451" class="s">Azure OpenAI gpt-5-mini, JSON</text>
+  <rect x="810" y="409" width="170" height="58" rx="8" class="ag"/><text x="895" y="433" class="t">Tools 4 · 5 · 6</text><text x="895" y="451" class="s">Care, knowledge, navigation</text>
+  <path d="M330 438H368" class="ln"/><path d="M540 438H578" class="ln"/><path d="M782 438H808" class="ln" marker-start="url(#a)"/>
+  <path d="M850 467V477H215V469" class="ln"/>
 
-    <!-- Flow -->
-    <line x1="430" y1="118" x2="466" y2="118" class="arr" stroke-dasharray="4 3" marker-end="url(#arrow)"/>
-    <line x1="620" y1="118" x2="664" y2="118" class="arr" marker-end="url(#arrow)"/>
-    <line x1="764" y1="146" x2="764" y2="186" class="arr" marker-end="url(#arrow)"/>
-    <line x1="860" y1="218" x2="892" y2="218" class="arr" marker-end="url(#arrow)"/>
-    <line x1="1070" y1="218" x2="1112" y2="218" class="arr" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-    <path d="M982 250 L982 318 L864 318" class="arr" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-    <line x1="764" y1="350" x2="764" y2="386" class="arr" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
-    <line x1="668" y1="318" x2="624" y2="318" class="arr" marker-end="url(#arrow)"/>
-    <line x1="620" y1="468" x2="646" y2="468" class="arr" marker-end="url(#arrow)"/>
+  <!-- 5 Tool gateway -->
+  <rect x="10" y="492" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="530" class="num">5</text><text x="44" y="528" class="lbl">Tool gateway</text>
+  <text x="22" y="548" class="lbs">Every tool call</text>
+  <rect x="160" y="517" width="820" height="58" rx="8" class="sf"/>
+  <text x="570" y="541" class="t">Allow-list · member scope · rate limit · circuit breaker · audit log</text>
+  <text x="570" y="559" class="s">After lookups: validate_rag_source checks the source, sanitize_untrusted_content removes instruction-like text</text>
 
-    <!-- Legend -->
-    <rect x="30" y="594" width="12" height="12" rx="2" fill="#E1F5EE" stroke="#0F6E56"/>
-    <text class="legend" x="50" y="604">Azure service</text>
-    <rect x="170" y="594" width="12" height="12" rx="2" fill="#F1EFE8" stroke="#888780"/>
-    <text class="legend" x="190" y="604">People and tools</text>
-  </g>
+  <!-- 6 Data -->
+  <rect x="10" y="600" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="638" class="num">6</text><text x="44" y="636" class="lbl">Data</text>
+  <text x="22" y="656" class="lbs">Read by tools 4–6</text>
+  <rect x="160" y="625" width="190" height="58" rx="8" class="dt"/><text x="255" y="649" class="t">Plan document</text><text x="255" y="667" class="s">Chroma + BGE-small search</text>
+  <rect x="370" y="625" width="190" height="58" rx="8" class="dt"/><text x="465" y="649" class="t">Diabetes playbook</text><text x="465" y="667" class="s">Chroma + BGE-small search</text>
+  <rect x="580" y="625" width="190" height="58" rx="8" class="dt"/><text x="675" y="649" class="t">Provider directory</text><text x="675" y="667" class="s">Fictional demo providers</text>
+  <rect x="790" y="625" width="190" height="58" rx="8" class="dt"/><text x="885" y="649" class="t">Members and schedule</text><text x="885" y="667" class="s">Demo records, demo slots</text>
+
+  <!-- 7 Reply and escalate -->
+  <rect x="10" y="708" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="746" class="num">7</text><text x="44" y="744" class="lbl">Reply or escalate</text>
+  <text x="22" y="764" class="lbs">Every reply</text>
+  <rect x="160" y="733" width="210" height="58" rx="8" class="sf"/><text x="265" y="757" class="t">Guardrails</text><text x="265" y="775" class="s">No diagnosis, advice, med changes</text>
+  <rect x="400" y="733" width="200" height="58" rx="8" class="nu"/><text x="500" y="757" class="t">Clara speaks</text><text x="500" y="775" class="s">Reply goes back to layer 2</text>
+  <rect x="640" y="733" width="160" height="58" rx="8" class="sf"/><text x="720" y="757" class="t">Emergency</text><text x="720" y="775" class="s">911 or 988 script</text>
+  <rect x="830" y="733" width="150" height="58" rx="8" class="sf"/><text x="905" y="757" class="t">Escalation</text><text x="905" y="775" class="s">Alert, review, follow-up</text>
+  <path d="M370 762H398" class="ln"/><path d="M800 762H828" class="ln"/>
+
+  <!-- 8 Watch and run -->
+  <rect x="10" y="816" width="980" height="100" rx="10" class="band"/>
+  <text x="22" y="854" class="num">8</text><text x="44" y="852" class="lbl">Watch and run</text>
+  <text x="22" y="872" class="lbs">Care team, operators</text>
+  <rect x="160" y="841" width="190" height="58" rx="8" class="az"/><text x="255" y="865" class="t">Live dashboard</text><text x="255" y="883" class="s">/live: tools, cards, satisfaction</text>
+  <rect x="370" y="841" width="190" height="58" rx="8" class="dt"/><text x="465" y="865" class="t">Transcripts + audit</text><text x="465" y="883" class="s">SQLite, audit and escalation logs</text>
+  <rect x="580" y="841" width="190" height="58" rx="8" class="az"/><text x="675" y="865" class="t">OpenTelemetry</text><text x="675" y="883" class="s">Traces of agents and tools</text>
+  <rect x="790" y="841" width="190" height="58" rx="8" class="az"/><text x="885" y="865" class="t">Key Vault + GitHub</text><text x="885" y="883" class="s">Secrets, tests, deploys</text>
+
+  <!-- Arrows between layers, drawn last so they sit on top -->
+  <path d="M740 143V191" class="ln"/>
+  <path d="M480 251V299" class="ln"/>
+  <path d="M825 359V372H245V407" class="ln"/>
+  <path d="M940 467V515" class="ln"/>
+  <path d="M570 575V623" class="ln"/>
 </svg>
