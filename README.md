@@ -1,4 +1,4 @@
-# Clara: AI voice outreach for high-risk diabetes patients
+# Clara: AI voice outreach for care management
 
 [![CI](https://github.com/yashvadlamani/hcm-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/yashvadlamani/hcm-agent/actions/workflows/ci.yml)
 [![Deploy Clara server](https://github.com/yashvadlamani/hcm-agent/actions/workflows/deploy-server.yml/badge.svg)](https://github.com/yashvadlamani/hcm-agent/actions/workflows/deploy-server.yml)
