@@ -2,9 +2,9 @@
 
 import logging
 
+from ..observability import traced_operation
 from ..tools import ToolCallContext, ToolGateway
 from ..tools.catalog import DOBAnswer, NameAnswer
-from ..observability import traced_operation
 
 logger = logging.getLogger(__name__)
 

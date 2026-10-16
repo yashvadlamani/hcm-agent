@@ -144,7 +144,8 @@ def search_provider_directory(arguments: dict[str, Any]) -> dict[str, Any]:
     provider_id = str(arguments.get("provider_id", "")).strip()
     if provider_id:
         options = _trusted_provider_id_lookup(provider_id)
-    elif not any(str(arguments.get(key, "")).strip() for key in ("provider_name", "specialty", "city", "area", "state")):
+    elif not any(str(arguments.get(key, "")).strip()
+                 for key in ("provider_name", "specialty", "city", "area", "state")):
         return {"status": "search_criteria_required", "options": [], "source": "provider_directory"}
     else:
         ranked = get_provider_vector_store().similarity_search_with_relevance_scores(_semantic_query(arguments), k=4)

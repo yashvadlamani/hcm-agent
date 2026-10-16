@@ -8,11 +8,12 @@ or approved-content store).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import re
+from datetime import datetime, timedelta, timezone
 from secrets import token_urlsafe
 from typing import Any
 
+from . import safety, security
 from .contracts import ToolDefinition
 from .identity import verify_dob, verify_full_name
 from .playbook import PLAYBOOK_ID, PLAYBOOK_STATUS, retrieve_playbook
@@ -267,14 +268,179 @@ def request_appointment(arguments: dict[str, Any]) -> dict[str, Any]:
     return request_demo_appointment(arguments)
 
 
-def safety_escalation(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Create a human-review task without replacing emergency guidance."""
-    return {"created": False, "status": "not_configured", "reason": "No human-review queue is connected."}
+def _escalation_fields(arguments: dict[str, Any]) -> dict[str, Any]:
+    """The minimum an escalation record needs: no names, dates of birth, phone numbers or transcripts."""
+    kind = arguments.get("kind") if arguments.get("kind") in safety.KINDS else None
+    return {"kind": kind, "reason": security.redact(str(arguments.get("reason") or ""))[:200],
+            "source": arguments.get("source"), "member_id": arguments.get("member_id"),
+            "tenant_id": arguments.get("tenant_id"), "call_id": arguments.get("call_id"),
+            "queue": safety.queue_for(kind)}
+
+
+def _recorded(entry: dict[str, Any], **extra: Any) -> dict[str, Any]:
+    return {"created": True, "record_id": entry["id"], "status": entry["status"], **extra}
+
+
+def create_clinical_review_task(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Record a task for a clinician to review this call; it does not replace emergency guidance."""
+    fields = _escalation_fields(arguments)
+    if not fields["reason"]:
+        fields["reason"] = str(arguments.get("statement") or "")[:200]
+    priority = "urgent" if fields["kind"] else "routine"
+    entry = safety.store().record("clinical_review", priority=priority, due="same business day", **fields)
+    return _recorded(entry, priority=priority)
+
+
+def route_member_distress(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Choose the care-team queue for a distressed member; this does not transfer the call."""
+    kind = arguments.get("kind") if arguments.get("kind") in safety.KINDS else None
+    return {"queue": safety.queue_for(kind), "status": "route_selected", "live_transfer": False}
+
+
+def create_safety_follow_up(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Record a follow-up check-in for the care team after a safety concern, due the next business day."""
+    due = safety.next_business_day().isoformat()
+    entry = safety.store().record("safety_follow_up", due=due, **_escalation_fields(arguments))
+    return _recorded(entry, due=due)
 
 
 def access_control(arguments: dict[str, Any]) -> dict[str, Any]:
     """Expose the gateway's decision boundary as a traceable control result."""
     return {"enforced": True, "status": "allowed"}
+
+
+def _named(arguments: dict[str, Any], key: str) -> str:
+    """A value given by name, or as the model's free-text query."""
+    return str(arguments.get(key) or arguments.get("text") or "").strip()
+
+
+def authorize_tool_call(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Report whether the gateway would allow a named tool for this caller and member, without running it."""
+    gateway, context, tool = arguments.get("_gateway"), arguments.get("_context"), _named(arguments, "tool")
+    if gateway is None or not tool:
+        return {"authorized": False, "reason": "name the tool to check"}
+    member = arguments.get("requested_member_id") or context.member_id
+    allowed, reason = gateway.check(tool, context, {"member_id": member})
+    return {"tool": tool, "authorized": allowed, "reason": reason or "allowed"}
+
+
+def enforce_member_scope(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Check that a requested member ID is the member this call is bound to; any other member is refused."""
+    context, requested = arguments.get("_context"), _named(arguments, "requested_member_id")
+    in_scope = context is not None and bool(requested) and requested == context.member_id
+    return {"in_scope": in_scope, "reason": "ok" if in_scope else "the request is outside this call's member scope"}
+
+
+def apply_tool_allowlist(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Report whether a named tool is on the gateway's allow-list; anything else can never run."""
+    gateway, tool = arguments.get("_gateway"), _named(arguments, "tool")
+    names = gateway.tool_names if gateway is not None else ()
+    return {"tool": tool, "allowlisted": bool(tool) and tool in names, "allowlist_size": len(names)}
+
+
+def audit_event(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Write a short security or operational event to the audit log."""
+    described = _named(arguments, "event")
+    if not described:
+        return {"recorded": False, "reason": "describe the event"}
+    labelled = security.classify(described)
+    log = security.audit_log()
+    entry = log.record("event", event=labelled["redacted_text"][:120], sensitivity=labelled["classification"],
+                       member_id=arguments.get("member_id"), call_id=arguments.get("call_id"))
+    return {"recorded": True, "audit_id": entry["id"], "durable": log.durable}
+
+
+def record_policy_decision(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Write a policy decision (which policy, allowed or blocked, and why) to the audit log."""
+    policy, outcome = str(arguments.get("policy") or "").strip()[:80], arguments.get("outcome")
+    if not policy or outcome not in ("allowed", "blocked"):
+        return {"recorded": False, "reason": "a policy name and an outcome of allowed or blocked are required"}
+    log = security.audit_log()
+    entry = log.record("policy_decision", policy=policy, outcome=outcome,
+                       reason=str(arguments.get("reason") or "")[:200], member_id=arguments.get("member_id"),
+                       call_id=arguments.get("call_id"))
+    return {"recorded": True, "audit_id": entry["id"], "durable": log.durable}
+
+
+def apply_rate_limit(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Count one event against a per-member limit and say whether it is within the limit."""
+    gateway = arguments.get("_gateway")
+    limiter = gateway.rate_limiter if gateway is not None else security.rate_limiter
+    key = f"{arguments.get('member_id') or 'unknown'}:{_named(arguments, 'key') or 'default'}"
+    try:
+        limit, window = int(arguments.get("limit", 5)), float(arguments.get("window_seconds", 60))
+    except (TypeError, ValueError):
+        return {"allowed": False, "reason": "limit and window_seconds must be numbers"}
+    if limit < 1 or window <= 0:
+        return {"allowed": False, "reason": "limit and window_seconds must be positive"}
+    return limiter.hit(key, limit, window)
+
+
+def apply_circuit_breaker(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Check, or report a success or failure to, the circuit breaker for a named dependency."""
+    dependency, action = _named(arguments, "dependency")[:80], arguments.get("action", "check")
+    if not dependency or action not in ("check", "success", "failure"):
+        return {"allowed": False, "reason": "name a dependency; action is check, success or failure"}
+    return {"dependency": dependency, **getattr(security.breaker(dependency), action)()}
+
+
+def classify_sensitive_data(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Label a text by the most sensitive data in it (identifier, health, financial) and return a redacted copy."""
+    return security.classify(str(arguments.get("text", "")), str(arguments.get("member_id") or ""))
+
+
+def detect_prompt_injection(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Detect attempts to override instructions, change roles, extract prompts or data, or bypass safety checks."""
+    return security.detect_injection(str(arguments.get("text", "")))
+
+
+def redact_for_logs(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Return a text with direct identifiers replaced, safe to write to a log."""
+    text = str(arguments.get("text", ""))
+    cleaned = security.redact(text, str(arguments.get("member_id") or ""))
+    return {"text": cleaned[:1000], "redacted": cleaned != text}
+
+
+def minimize_prompt_context(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a call context to what a prompt or tool needs, dropping identifier fields and redacting text."""
+    context = arguments.get("context")
+    if not isinstance(context, dict):
+        return {"context": {}, "purpose": arguments.get("purpose", "tools"), "removed": [],
+                "reason": "a context object is required"}
+    return security.minimize(context, "prompt" if arguments.get("purpose") == "prompt" else "tools")
+
+
+def sanitize_untrusted_content(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Remove instruction-like text from retrieved passages or tool output before a model reads it."""
+    return security.sanitize(arguments["content"] if "content" in arguments else str(arguments.get("text", "")))
+
+
+# The only places retrieved guidance may come from. A passage from anywhere else is dropped.
+RAG_SOURCES = {
+    PLAYBOOK_ID: {"approved": PLAYBOOK_STATUS == "approved", "status": PLAYBOOK_STATUS, "valid_through": None},
+    POLICY_ID: {"approved": True, "status": "member plan document", "valid_through": "2025-12-31"},
+}
+
+
+def validate_rag_source(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Check that retrieved passages come from a registered source, and whether it is approved and current."""
+    source_id, passages = str(arguments.get("source_id") or ""), arguments.get("results") or []
+    source = RAG_SOURCES.get(source_id)
+    if source is None:
+        return {"valid": False, "source_id": source_id, "accepted": [], "rejected": len(passages),
+                "warnings": ["The source is not registered; its passages were dropped."]}
+    accepted = [passage for passage in passages if isinstance(passage, dict) and passage.get("content")
+                and passage.get("policy_id", source_id) == source_id]
+    today = str(arguments.get("today") or datetime.now(timezone.utc).date().isoformat())
+    current = source["valid_through"] is None or today <= source["valid_through"]
+    warnings = []
+    if not source["approved"]:
+        warnings.append(f"This source is not approved for production use (status: {source['status']}).")
+    if not current:
+        warnings.append(f"This source was valid through {source['valid_through']}; details may have changed. "
+                        "Tell the member to confirm with their plan.")
+    return {"valid": True, "source_id": source_id, "approved": source["approved"], "current": current,
+            "accepted": accepted, "rejected": len(passages) - len(accepted), "warnings": warnings}
 
 
 def protect_phi(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -301,22 +467,38 @@ def operational_control(arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 def assess_emergency(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Validate the Safety agent's LLM assessment for fixed-script routing, not diagnosis."""
-    emergency = arguments.get("llm_emergency") is True
-    kind = arguments.get("llm_kind")
-    return {"emergency": emergency, "kind": kind if emergency and kind in {"medical", "mental_health"} else None}
+    """Decide whether a statement is an emergency and which kind, for fixed-script routing, not diagnosis.
+
+    The keyword net decides first. Otherwise the Safety agent's LLM assessment (llm_emergency,
+    llm_kind), or an assessment the conversation model already made (reported_kind,
+    reported_reason), is accepted when it names a known kind."""
+    kind, description = safety.classify(str(arguments.get("statement", "")))
+    if kind:
+        return {"emergency": True, "kind": kind, "reason": description.split(":", 1)[-1].strip(),
+                "source": "keyword"}
+    if arguments.get("llm_emergency") is True and arguments.get("llm_kind") in safety.KINDS:
+        return {"emergency": True, "kind": arguments["llm_kind"],
+                "reason": str(arguments.get("llm_reason") or "safety agent assessment")[:200], "source": "ai"}
+    if arguments.get("reported_kind") in safety.KINDS:
+        return {"emergency": True, "kind": arguments["reported_kind"],
+                "reason": str(arguments.get("reported_reason") or "described urgent symptoms")[:200],
+                "source": "ai"}
+    return {"emergency": False, "kind": None, "reason": "", "source": None}
 
 
 def get_911_or_988_script(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Return fixed emergency language rather than model-generated medical instructions."""
-    if arguments.get("kind") == "mental_health":
-        return {"script": "Please call or text 988 now, or call 911 if you are in immediate danger."}
-    return {"script": "If this is a medical emergency, please hang up and call 911 now."}
+    """Return fixed emergency language (911 or 988) rather than model-generated medical instructions."""
+    kind = arguments.get("kind") if arguments.get("kind") in safety.KINDS else "medical"
+    return {"kind": kind, "script": safety.emergency_script(kind, flagged=arguments.get("flagged") is True)}
 
 
 def create_urgent_alert(arguments: dict[str, Any]) -> dict[str, Any]:
-    """Create an urgent alert; it never replaces 911 or 988 guidance."""
-    return {"created": False, "status": "not_configured", "reason": "No urgent-alert adapter is connected."}
+    """Record an urgent alert for the care team after an assessed emergency; it never replaces 911 or 988."""
+    fields = _escalation_fields(arguments)
+    if not fields["kind"]:
+        return {"created": False, "status": "rejected", "reason": "An assessed emergency is required first."}
+    entry = safety.store().record("urgent_alert", notify=True, priority="urgent", **fields)
+    return _recorded(entry, queue=fields["queue"])
 
 
 def enforce_response_latency(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -375,27 +557,34 @@ def register_domain_tools() -> list[ToolDefinition]:
         "get_911_or_988_script": get_911_or_988_script,
         "create_urgent_alert": create_urgent_alert,
         "enforce_response_latency": enforce_response_latency,
+        "classify_sensitive_data": classify_sensitive_data,
+        "redact_for_logs": redact_for_logs,
+        "minimize_prompt_context": minimize_prompt_context,
+        "sanitize_untrusted_content": sanitize_untrusted_content,
+        "validate_rag_source": validate_rag_source,
+        "detect_prompt_injection": detect_prompt_injection,
+        "authorize_tool_call": authorize_tool_call,
+        "enforce_member_scope": enforce_member_scope,
+        "apply_tool_allowlist": apply_tool_allowlist,
+        "audit_event": audit_event,
+        "record_policy_decision": record_policy_decision,
+        "apply_rate_limit": apply_rate_limit,
+        "apply_circuit_breaker": apply_circuit_breaker,
+        "create_clinical_review_task": create_clinical_review_task,
+        "route_member_distress": route_member_distress,
+        "create_safety_follow_up": create_safety_follow_up,
     }
     tools = [ToolDefinition(name, handler, IDENTITY_SCOPE if name in {
         "confirm_member", "verify_full_name", "verify_dob", "issue_and_verify_otp", "handle_low_asr_confidence",
         "verify_authorized_representative", "record_verification_failure"} else EMERGENCY_SCOPE if name in {
-        "assess_emergency", "get_911_or_988_script", "create_urgent_alert", "enforce_response_latency"} else CARE_SCOPE)
+        "assess_emergency", "get_911_or_988_script", "create_urgent_alert", "enforce_response_latency",
+        "create_clinical_review_task", "route_member_distress", "create_safety_follow_up"} else CARE_SCOPE)
              for name, handler in direct.items()]
     groups = {
-        safety_escalation: ("create_clinical_review_task", "route_member_distress", "create_safety_follow_up"),
-        access_control: (
-            "authorize_tool_call", "enforce_member_scope", "apply_tool_allowlist", "enforce_role_or_tenant_scope",
-        ),
-        protect_phi: (
-            "minimize_prompt_context", "redact_for_logs", "classify_sensitive_data", "apply_retention_policy",
-        ),
-        defend_content: (
-            "detect_prompt_injection", "sanitize_untrusted_content", "validate_rag_source", "apply_output_dlp",
-        ),
-        operational_control: (
-            "audit_event", "record_policy_decision", "raise_security_incident", "apply_rate_limit",
-            "apply_circuit_breaker",
-        ),
+        access_control: ("enforce_role_or_tenant_scope",),
+        protect_phi: ("apply_retention_policy",),
+        defend_content: ("apply_output_dlp",),
+        operational_control: ("raise_security_incident",),
     }
     for handler, names in groups.items():
         tools.extend(_definitions(names, handler))

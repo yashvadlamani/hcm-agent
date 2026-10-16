@@ -18,6 +18,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   header { display: flex; align-items: center; justify-content: space-between;
@@ -73,6 +74,10 @@
   .patient .bubble { background: var(--patient); border-top-right-radius: 4px; }
   .tag { font-size: 11px; color: var(--muted); margin-top: 3px; }
   .tag.low { color: var(--warn); font-weight: 600; }
+  .tools { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-top: 4px; }
+  .tool { font: 11px ui-monospace, Consolas, monospace; padding: 1px 7px; border-radius: 999px;
+          background: var(--patient); color: var(--text); border: 1px solid var(--line); }
+  .tool.denied { color: var(--bad); border-color: var(--bad); }
   .card { align-self: stretch; border-radius: 8px; padding: 10px 14px; font-size: 13px; }
   .card.guardrail { background: var(--warn-soft); border: 1px solid var(--warn); }
   .card.emergency { background: var(--bad-soft); border: 1px solid var(--bad); color: var(--bad); font-weight: 600; }
@@ -102,6 +107,23 @@
     .pill.feedback-yes, .mood-pill.positive { background: #1d3a2a; }
     .meter { background: linear-gradient(90deg, var(--bad-soft) 0 35%, var(--patient) 35% 65%, #1d3a2a 65% 100%); }
   }
+  /* Local test chat (clara-interactive-chat): a form to start a call and a box to type as the patient. */
+  .setup { padding: 4px 16px 14px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+  .setup label { font-size: 12px; color: var(--muted); display: grid; gap: 3px; }
+  .setup input, .setup select, .setup textarea, .composer input[type=text] {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px; width: 100%; }
+  .setup textarea { resize: vertical; min-height: 92px; }
+  .setup .row, .composer .row { display: flex; gap: 8px; align-items: center; }
+  .setup .answers { font-size: 12px; color: var(--muted); background: var(--bg); border: 1px dashed var(--line);
+                    border-radius: 6px; padding: 6px 9px; }
+  button.primary, button.plain { font: inherit; border-radius: 6px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+  button.primary { background: var(--accent); color: #fff; border: 1px solid var(--accent); font-weight: 600; }
+  button.plain { background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  .setup .error { color: var(--bad); font-size: 12px; }
+  .composer { padding: 12px 20px; border-top: 1px solid var(--line); background: var(--panel); display: grid; gap: 6px; }
+  .composer .hint { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; }
   .empty { margin: auto; text-align: center; color: var(--muted); max-width: 420px; padding: 20px; }
   .empty code { display: block; margin-top: 10px; padding: 8px; background: var(--panel);
                 border: 1px solid var(--line); border-radius: 6px; font-size: 12px; }
@@ -205,11 +227,24 @@
 </head>
 <body>
 <header>
-  <h1>Clara <span>· Live calls</span></h1>
+  <h1>Clara <span id="page-kind">· Live calls</span></h1>
   <div class="header-actions"><button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">Dark mode</button><div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">Connecting…</span></div></div>
 </header>
 <main>
   <aside>
+    <div id="chat-setup" hidden>
+      <h2>New test call</h2>
+      <form class="setup" id="setup-form">
+        <label>Member <select id="setup-member" required></select></label>
+        <div class="answers" id="setup-answers"></div>
+        <label>Calling for <input id="setup-for" list="setup-reasons" maxlength="60">
+          <datalist id="setup-reasons"></datalist></label>
+        <label>Risk drivers (one per line, up to 5)
+          <textarea id="setup-drivers"></textarea></label>
+        <div class="row"><button class="primary" type="submit" id="setup-start">Start call</button></div>
+        <div class="error" id="setup-error" hidden></div>
+      </form>
+    </div>
     <div class="aside-heading"><h2>Recent calls</h2><button class="select-all" id="select-all" type="button">Select all</button></div>
     <div class="bulk-actions" id="bulk-actions" hidden><span id="selected-count">0 selected</span><button class="bulk-delete" id="bulk-delete" type="button" disabled>Delete selected</button></div>
     <div id="call-list"></div>
@@ -234,6 +269,18 @@
         <code id="start-command">clara-call --url https://&lt;your-app&gt;.azurewebsites.net --to +1XXXXXXXXXX --name &lt;FirstName&gt;</code>
       </div>
     </div>
+    <form class="composer" id="composer" hidden>
+      <div class="row">
+        <input type="text" id="say-text" placeholder="Type what the patient says, then press Enter" autocomplete="off">
+        <button class="primary" type="submit" id="say-send">Send</button>
+        <button class="plain" type="button" id="say-silent" title="The patient says nothing">Stay silent</button>
+        <button class="plain" type="button" id="say-hangup" title="The patient hangs up">Hang up</button>
+      </div>
+      <div class="hint">
+        <span id="say-hint">Test call: no phone line or call minutes are used.</span>
+        <label><input type="checkbox" id="say-aloud"> Read Clara's replies aloud</label>
+      </div>
+    </form>
   </section>
 </main>
 
@@ -261,6 +308,11 @@ const RULES = {
   medical_advice: "medical advice",
   prescription_change: "a medication change",
   promise: "a promise Clara can't keep",
+};
+const ESCALATION = {
+  create_urgent_alert: "urgent alert",
+  create_clinical_review_task: "clinical review task",
+  create_safety_follow_up: "safety follow-up",
 };
 const mood = (v) => v < 0.35 ? "negative" : v > 0.65 ? "positive" : "neutral";
 const MOOD_LABEL = { negative: "Dissatisfied", neutral: "Neutral", positive: "Satisfied" };
@@ -329,6 +381,7 @@ function handle(event, historical = false) {
   }
   call.events.push(event);
   if (!selected) selected = event.call;
+  if (event.type === "clara" && !historical) speakAloud(event);
   renderList();
   if (event.call === selected) renderCall();
 }
@@ -350,7 +403,7 @@ function renderList() {
     const sub = el("div", "sub", `${clock(call.started)} · satisfaction ${averageSatisfaction(call).toFixed(2)} `);
     if (call.change) sub.append(el("span", call.change > 0 ? "up" : "down", arrow(call.change)));
     summary.append(row, sub);
-    summary.onclick = () => { selected = sid; userPicked = true; renderList(); renderCall(); };
+    summary.onclick = () => { selected = sid; userPicked = true; renderList(); renderCall(); updateComposer(); };
     item.append(checkbox, summary);
     list.append(item);
   });
@@ -429,10 +482,20 @@ function renderCall() {
       const msg = el("div", "msg clara" + (e.kind === "system" ? " system" : ""));
       msg.append(el("div", "who", `Clara · ${clock(e.ts)}`), el("div", "bubble", e.text));
       if (e.latency !== undefined) msg.append(el("div", "tag", `Replied in ${e.latency}s`));
+      if (e.tools && e.tools.length) {
+        const row = el("div", "tools");
+        row.append(el("span", "tag", "Tools this turn:"));
+        e.tools.forEach((t) => row.append(el("span", "tool" + (t.allowed ? "" : " denied"),
+                                             t.allowed ? t.tool : `${t.tool} (denied)`)));
+        msg.append(row);
+      } else if (e.tools && e.latency !== undefined) {
+        msg.append(el("div", "tag", "No tools used this turn"));
+      }
       timeline.append(msg);
     } else if (e.type === "patient") {
       const msg = el("div", "msg patient");
       msg.append(el("div", "who", `Patient · ${clock(e.ts)}`), el("div", "bubble", e.text));
+      if (e.redacted) msg.append(el("div", "tag", "Personal identifiers redacted"));
       if (e.confidence !== null && e.confidence !== undefined) {
         const pct = Math.round(e.confidence * 100);
         msg.append(el("div", "tag" + (pct < 60 ? " low" : ""),
@@ -455,6 +518,15 @@ function renderCall() {
       const message = e.kind === "mental_health" ? "the 988 crisis line message" : "the 911 message";
       timeline.append(el("div", "card emergency",
         `${e.kind === "mental_health" ? "Mental health crisis" : "Medical emergency"} detected by ${how}: ${reason}. Clara gave ${message} and ended the call.`));
+    } else if (e.type === "security") {
+      timeline.append(el("div", "card guardrail",
+        `Security: blocked a prompt-injection attempt (${(e.categories || []).join(", ").replaceAll("_", " ")}). ` +
+        "The caller's words were not sent to the model."));
+    } else if (e.type === "escalation") {
+      const made = Object.entries(e.records || {}).map(([tool, id]) => `${ESCALATION[tool] || tool} ${id}`);
+      timeline.append(el("div", "card guardrail", e.flagged
+        ? `Escalated to the care team (queue: ${e.queue}). Recorded: ${made.join(", ")}.`
+        : "The escalation could not be recorded. Clara gave the emergency message without saying the call was flagged."));
     } else if (e.type === "identity") {
       const text = e.status === "confirmed" ? "Identity confirmed · patient on the line"
         : e.status === "failed" ? "Identity verification failed · Clara apologized and ended the call"
@@ -473,6 +545,7 @@ function renderCall() {
   }
   if (waiting && !call.ended) timeline.append(el("div", "typing", "Clara is preparing a reply…"));
   if (atBottom || call.status === "live") timeline.scrollTop = timeline.scrollHeight;
+  updateComposer(waiting);
 }
 
 function renderToolsAndSources(call) {
@@ -671,6 +744,94 @@ async function loadHistory() {
 }
 
 loadHistory().finally(connect);
+
+// ---- Local test chat: only when this page is served by clara-interactive-chat ----
+let localChat = false;
+let localMembers = [];
+const isLocal = (callId) => Boolean(callId) && callId.startsWith("local-");
+
+async function post(path, body) {
+  const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                       body: JSON.stringify(body) });
+  if (!response.ok) throw new Error(await response.text() || `Request failed (${response.status})`);
+  return response.status === 200 && response.headers.get("Content-Type")?.includes("json") ? response.json() : {};
+}
+
+function showMember() {
+  const member = localMembers.find((m) => m.member_id === $("setup-member").value);
+  if (!member) return;
+  $("setup-for").value = member.for || "diabetes management";
+  $("setup-drivers").value = (member.risk_drivers || []).join("\n");
+  $("setup-answers").textContent =
+    `To pass verification, say the name "${member.name}", then the date of birth ${member.date_of_birth}.` +
+    (member.scenario ? ` Scenario: ${member.scenario}` : "");
+}
+
+function updateComposer(waiting = false) {
+  if (!localChat) return;
+  const call = calls.get(selected);
+  const open = Boolean(call) && isLocal(selected) && !call.ended;
+  $("composer").hidden = !call || !isLocal(selected);
+  for (const id of ["say-text", "say-send", "say-silent", "say-hangup"]) $(id).disabled = !open || waiting;
+  $("say-hint").textContent = !open ? "This call has ended. Start a new test call on the left."
+    : waiting ? "Clara is preparing a reply…" : "Test call: no phone line or call minutes are used.";
+  if (open && !waiting && document.activeElement === document.body) $("say-text").focus();
+}
+
+function speakAloud(event) {
+  // Only fresh replies of a local call: a page reload replays old events, which shouldn't be spoken.
+  if (!localChat || !$("say-aloud").checked || !isLocal(event.call) || !window.speechSynthesis) return;
+  if (Date.now() / 1000 - event.ts > 5) return;
+  speechSynthesis.speak(new SpeechSynthesisUtterance(event.text));
+}
+
+async function say(text) {
+  $("say-text").value = "";
+  try { await post("/chat/say", { call: selected, text }); }
+  catch (error) { $("say-hint").textContent = error.message; }
+}
+
+async function startLocalChat() {
+  let config;
+  try {
+    const response = await fetch("/chat/config");
+    if (!response.ok) return;  // a deployed server: this stays a read-only live view
+    config = await response.json();
+  } catch { return; }
+  localChat = true;
+  localMembers = config.members || [];
+  document.title = "Clara Test Chat";
+  $("page-kind").textContent = "· Local test chat";
+  $("chat-setup").hidden = false;
+  $("setup-member").replaceChildren(...localMembers.map((m) =>
+    Object.assign(el("option", null, m.name), { value: m.member_id })));
+  $("setup-reasons").replaceChildren(...config.reasons.map((reason) => Object.assign(el("option"), { value: reason })));
+  $("setup-member").onchange = showMember;
+  showMember();
+  const empty = document.querySelector("#timeline .empty");
+  if (empty) empty.replaceChildren(el("strong", null, "Start a test call"),
+    el("p", null, "Choose a member on the left and press Start call. Then type what the patient says. " +
+                  "The call runs through the same conversation, tools, guardrails and emergency checks as a phone call."));
+
+  $("setup-form").onsubmit = async (submit) => {
+    submit.preventDefault();
+    const error = $("setup-error");
+    error.hidden = true;
+    const drivers = $("setup-drivers").value.split("\n").map((d) => d.trim()).filter(Boolean);
+    try {
+      const started = await post("/chat/start", { member_id: $("setup-member").value,
+                                                  for: $("setup-for").value || undefined, risk_drivers: drivers });
+      selected = started.call; userPicked = true;
+      renderList(); renderCall();
+      $("say-text").focus();
+    } catch (problem) { error.textContent = problem.message; error.hidden = false; }
+  };
+  $("composer").onsubmit = (submit) => { submit.preventDefault(); const text = $("say-text").value.trim(); if (text) say(text); };
+  $("say-silent").onclick = () => say("");
+  $("say-hangup").onclick = () => post("/chat/hangup", { call: selected }).catch(() => {});
+  updateComposer();
+}
+startLocalChat();
 </script>
 </body>
 </html>

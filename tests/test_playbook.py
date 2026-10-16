@@ -1,9 +1,8 @@
 """Offline tests for the scoped, LangChain-backed playbook tool boundary."""
 
 from hcm_agent.tools import ToolCallContext, build_default_gateway, domains
-from hcm_agent.tools.catalog import build_tools
-from test_langgraph import invoke_catalog_tool
 from hcm_agent.tools.playbook import PLAYBOOK_ID, PLAYBOOK_STATUS
+from test_langgraph import invoke_catalog_tool
 
 
 def _context():

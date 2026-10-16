@@ -295,16 +295,18 @@ def test_crisis_phrase_without_the_word_suicide_is_caught_instantly():
     assert turn.emergency.kind == "mental_health" and llm.requests == []
 
 
-def test_no_to_anything_else_closes_without_the_model():
-    agent, llm = new_agent(turn_json("I'll note that. Is there anything else I can help you with today?"))
+def test_no_to_anything_else_is_decided_by_the_model():
+    agent, llm = new_agent(turn_json("I'll note that. Is there anything else I can help you with today?"),
+                           turn_json("I'm glad I could help.", state="patient_done"))
     agent.take_turn("I skipped a refill because of the cost.")
     turn = agent.take_turn("No, that's really helpful, thank you.")
     assert turn.phase == "feedback" and turn.reply.endswith(FEEDBACK_QUESTION)
-    assert len(llm.requests) == 1  # only the first turn asked the model
+    assert len(llm.requests) == 2  # the closing turn is the model's decision
 
 
 def test_thanks_in_a_closing_turn_lifts_the_sentiment():
-    agent, _ = new_agent(turn_json("Is there anything else I can help you with today?", sentiment=0.3))
+    agent, _ = new_agent(turn_json("Is there anything else I can help you with today?", sentiment=0.3),
+                         turn_json("I'm glad I could help.", sentiment=0.8, state="patient_done"))
     assert agent.take_turn("I skipped a refill.").sentiment == 0.38
     assert agent.take_turn("No, that's really helpful, thank you.").sentiment == 0.63  # 0.4*0.38 + 0.6*0.8
     assert agent.take_turn("No thanks.").sentiment == 0.63  # declining the form isn't a mood signal
@@ -343,7 +345,8 @@ def test_identity_tools_run_in_order_and_keep_dob_out_of_model_context():
     final = agent.take_turn("January 2nd, 1990")
     assert final.identity == "confirmed" and final.phase == "conversation"
     assert final.reply.startswith("Thank you for verifying your identity.")
-    assert [e["tool"] for e in agent.identity_gateway.audit_log] == ["verify_full_name", "verify_dob"]
+    identity_tools = [e["tool"] for e in agent.identity_gateway.audit_log if e["tool"].startswith("verify_")]
+    assert identity_tools == ["verify_full_name", "verify_dob"]
     assert llm.requests == []
     agent.take_turn("I am doing well.")
     assert "1990" not in json.dumps(llm.requests)
@@ -440,3 +443,9 @@ def test_curly_apostrophes_do_not_trigger_a_runtime_promise_guardrail():
 def test_dashes_are_spoken_as_pauses():
     agent, _ = new_agent(turn_json("Night shifts are hard \u2014 how do you fit refills in?"))
     assert agent.take_turn("I work nights.").reply == "Night shifts are hard, how do you fit refills in?"
+
+def test_a_reply_written_in_front_of_the_json_is_spoken_without_the_json():
+    raw = ('That sounds hard. What changed?\n{"emergency": {"detected": false, "type": "none", "reason": ""}, '
+           '"sentiment": 0.3, "conversation_state": "ongoing"}')
+    assert parse_model_output(raw) == {"reply": "That sounds hard. What changed?", "emergency": None,
+                                       "sentiment": 0.3, "state": "ongoing"}

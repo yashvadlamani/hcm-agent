@@ -9,10 +9,10 @@ Where Clara is today, what comes next, what's needed before calling real patient
 | Area | Built | Next |
 |---|---|---|
 | Phone calls | ACS calls, Azure neural voice and speech recognition | Purchased number, branded caller ID |
-| Conversation | Personalized replies, guardrails (including no promises), clinical emergency detection, natural endings, live sentiment | Answers grounded in approved clinical content (RAG) |
+| Conversation | Personalized replies, name and date-of-birth verification, LangGraph capability agents, guardrails, emergency detection with a model safety check, escalation records, security checks, natural endings, live sentiment | Clinically approved content, model-based security checks, faster turns |
 | Starting calls | JSON upload → Azure Function, allow-list, hourly limit | Patient eligibility: consent, Do-Not-Call, calling hours |
-| After the call | Transcript and summary in the server log, live dashboard, feedback-form opt-in recorded | Text the feedback form (needs an SMS-capable number), stored call records, care-manager escalation |
-| Platform | App Service, Functions, Key Vault, CI and automatic deploys | Always-on hosting, shared call state, monitoring and alerts |
+| After the call | Transcript and summary in the server log, saved test-call transcripts, observability dashboard, escalation records, feedback-form opt-in recorded | Text the feedback form (needs an SMS-capable number), durable call records, escalations delivered to a care-team system |
+| Platform | App Service, Functions, Key Vault, CI and automatic deploys, on-demand PR review, local test chat | Always-on hosting, shared call state, monitoring and alerts |
 | Compliance | Test data only | BAA, audit logging, clinical and legal review |
 
 ## Next milestones
@@ -25,8 +25,8 @@ Where Clara is today, what comes next, what's needed before calling real patient
 2. **Scheduled callbacks**
    - Turn the "good time to reach the patient" that Clara notes today into a scheduled call: parse the time, respect calling hours, and place the call automatically.
 3. **Care-team integration**
-   - Care-manager escalation and follow-up tasks; Clara only offers these today.
-   - An emergency notification to the care manager.
+   - Deliver escalations and follow-up tasks to a care-team system. Emergencies are recorded today (urgent alert, clinical review task, safety follow-up), but nobody is paged.
+   - An emergency notification to the care manager. An urgent alert can already be posted to a Teams or Slack channel by webhook.
    - A call summary per patient.
 4. **Smarter conversations**
    - Grounded answers (RAG) from approved clinical documents.
@@ -52,6 +52,15 @@ Only the free trial number is limited to verified numbers. A purchased ACS numbe
 ## History
 
 Notable changes, newest first.
+
+**2026-10-15: Safety, security and testing on the LangGraph work (PR #16)**
+- **Emergency escalation:** six safety tools run on every emergency and record an urgent alert, a clinical review task and a next-business-day follow-up. Clara says the call was flagged only when the alert was recorded; recording never blocks the 911 or 988 message.
+- **Security tools:** 13 of 17 are working drafts. Prompt-injection attempts are blocked before any model sees them; personal data is redacted from the dashboard, transcripts and logs; the prompt and tools get minimized context; search results are checked against registered sources and cleaned; every tool call is audited and rate-limited.
+- **Local test chat** (`clara-interactive-chat`): a full typed call in the browser with no phone. The dashboard shows the tools used on each turn and cards for escalations and blocked attempts.
+- **Merged Himanshu's observability work:** a new dashboard with tracing, summary cards and a response-time chart; a model-based safety check every turn; the model now decides when a call ends; the promise guardrail was removed.
+- **Fixed:** raw JSON could appear at the end of Clara's replies (JSON mode is now requested on every model call), and a reply slower than 8 seconds crashed the "checking now" message.
+- **On-demand PR review:** comment `/review` on a pull request for an automated review.
+- Lint and stale tests fixed so CI passes; a scripted scenario test runs all 19 safety and security tools.
 
 **2026-10-02: Sentiment measures satisfaction with the call**
 - The live score now tracks how satisfied the patient seems with the call at each moment. Calmly describing a hard situation is neutral; frustration with the call lowers it and feeling heard or helped raises it.

@@ -7,7 +7,6 @@ from langchain_core.messages import AIMessage, ToolMessage
 from hcm_agent.agent.conversation import HCMVoiceAgent
 from hcm_agent.agent.llm import LangChainLLM
 from hcm_agent.tools import ToolCallContext, build_default_gateway
-from hcm_agent.tools.catalog import build_tools
 from test_config import VALID
 from test_langgraph import ScriptedChatModel, call, invoke_catalog_tool
 
