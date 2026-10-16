@@ -34,7 +34,7 @@ More detail: [Architecture](./docs/architecture.md).
 | Start calls by uploading a JSON file (Azure Functions + Event Grid) | ✅ Live |
 | Live call dashboard with guardrail and emergency alerts | ✅ Live |
 | Secrets in Azure Key Vault; automated tests and deploys (GitHub Actions) | ✅ Live |
-| Patient eligibility checks (consent, Do-Not-Call, calling hours) | 🚧 Planned |
+| Policy-gated outreach workflow (consent, DNC, calling hours, authorization) | ✅ Reference implementation |
 | Care-manager escalation and follow-up tasks | 🚧 Planned |
 | Answers grounded in approved clinical content (RAG) | 🚧 Planned |
 | HIPAA-ready production environment (BAA, purchased number, audit logging) | 🚧 Planned |
@@ -67,6 +67,7 @@ To set up Azure and place your first real call, follow [Setup and deployment](./
 | Document | What's in it |
 |---|---|
 | [Architecture](./docs/architecture.md) | How Clara works: components, call flow, guardrails, security model, key decisions |
+| [Workflow and tools](./docs/architecture/workflow-and-tools.md) | Native LangChain/LangGraph agents, eight tool families, and member-scoped tool execution |
 | [Setup and deployment](./docs/setup.md) | Install, phone number, deploy to Azure, automatic deploys, placing calls |
 | [Operations](./docs/operations.md) | Health checks, on/off, logs, keys, phone numbers, costs, troubleshooting |
 | [Roadmap](./docs/roadmap.md) | What's next, the path to real patient calls, project history |
@@ -79,6 +80,8 @@ To set up Azure and place your first real call, follow [Setup and deployment](./
 hcm-agent/
 ├── hcm_agent/              # Everything Clara runs on
 │   ├── agent/              #   Conversation: prompts, model backends, guardrails
+│   ├── workflows/          #   Named policy graphs: eligibility → authorization → setup
+│   ├── tools/              #   Tool gateway and business-domain tool contracts
 │   ├── telephony/          #   Calls: ACS event server, outbound calls, live dashboard
 │   ├── cli/                #   clara-chat and clara-call
 │   ├── azure_functions/    #   Azure Function: JSON upload → phone call

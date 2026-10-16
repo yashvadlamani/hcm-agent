@@ -32,6 +32,7 @@ from .. import config
 from ..agent import HCMVoiceAgent
 from ..agent.llm import LLM, create_llm
 from ..call_reasons import call_reason
+from ..workflows.member_data import identity_record_for_phone
 from . import live_feed
 from .outbound import decode_call_context, to_e164
 
@@ -143,9 +144,12 @@ def on_connected(call_id: str, ctx: str) -> None:
     reason = call_reason(reason).label
     executor.submit(warm_up_model)
     agent = HCMVoiceAgent(llm=shared_llm())
-    agent.initialize_call({"name": name, "risk_drivers": drivers, "call_reason": reason})
-    greeting = agent.start_call()  # asks for the patient by name before anything health-related
-    calls[call_id] = CallState(agent, find_patient(call_id))
+    patient = find_patient(call_id)
+    identity_record = identity_record_for_phone(patient.properties["value"])
+    agent.initialize_call({"name": name, "risk_drivers": drivers, "call_reason": reason},
+                          identity_record=identity_record)
+    greeting = agent.start_call()
+    calls[call_id] = CallState(agent, patient)
     logger.info("Call %s connected for %s (%s)", call_id, name, reason)
     live_feed.publish(call_id, "call_started", name=name, drivers=drivers, reason=reason,
                       sentiment=agent.sentiment)
@@ -162,8 +166,9 @@ def on_speech(call_id: str, data: dict) -> None:
         if not said:
             return listen_again(call_id, state)
         state.silent_turns = 0
-        logger.info("Patient: %s", said)
-        live_feed.publish(call_id, "patient", text=said, confidence=speech.get("confidence"))
+        recorded = ("[Identity answer provided]" if state.agent.phase in ("verify_name", "verify_dob") else said)
+        logger.info("Patient: %s", recorded)
+        live_feed.publish(call_id, "patient", text=recorded, confidence=speech.get("confidence"))
 
         agent = state.agent
         sentiment_before, phase_before = agent.sentiment, agent.phase
@@ -173,7 +178,7 @@ def on_speech(call_id: str, data: dict) -> None:
         latency = time.monotonic() - started
         logger.info("Clara (%.1fs, %s): %s", latency, turn.action, turn.reply)
 
-        if turn.used_model or turn.sentiment != sentiment_before:
+        if (turn.used_model and phase_before == "conversation") or turn.sentiment != sentiment_before:
             live_feed.publish(call_id, "sentiment", value=turn.sentiment,
                               change=round(turn.sentiment - sentiment_before, 2))
         if turn.emergency:
@@ -192,7 +197,7 @@ def on_speech(call_id: str, data: dict) -> None:
             kind = "emergency"
         elif turn.action == "hang_up":
             kind = "goodbye"
-        elif turn.phase in ("verify", "callback") or turn.identity == "confirmed":
+        elif turn.phase in ("verify_name", "verify_dob") or turn.identity == "confirmed":
             kind = "opening"
         else:
             kind = "closing" if turn.phase == "feedback" else "reply"

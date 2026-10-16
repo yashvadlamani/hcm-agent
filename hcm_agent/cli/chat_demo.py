@@ -11,6 +11,8 @@ import logging
 from typing import Any, Dict
 
 from ..agent import HCMVoiceAgent
+from ..agent.conversation import DOB_QUESTION
+from ..workflows.member_data import identity_record_for_name
 
 # ---- A simulated phone call in the terminal ----
 
@@ -22,7 +24,10 @@ class MockVoiceInterface:
 
     def start_call(self, patient_context: Dict[str, Any]):
         """Start a simulated voice call."""
-        self.agent.initialize_call(patient_context)
+        record = identity_record_for_name(patient_context.get("name", ""))
+        self.agent.initialize_call(patient_context, identity_record=record)
+        if not record:
+            print("No unique member record found. Add the member to MEMBER_DATA_PATH before testing verification.")
         print("\n" + "="*70)
         print("📞 VOICE CALL STARTED")
         print(f"Patient: {patient_context.get('name', 'Unknown')}")
@@ -33,10 +38,16 @@ class MockVoiceInterface:
 
     def send_message(self, message: str):
         """Send patient message and get agent response."""
-        print(f"🗣️  Patient: {message}")
+        recorded = "[Date of birth provided]" if self.agent.phase == "verify_dob" else message
+        print(f"🗣️  Patient: {recorded}")
+        audit_start = len(self.agent.identity_gateway.audit_log)
         turn = self.agent.take_turn(message)
         print(f"🤖 Agent: {turn.reply}")
         notes = [f"sentiment {turn.sentiment:.2f}"]
+        identity_tools = [event["tool"] for event in self.agent.identity_gateway.audit_log[audit_start:]
+                          if event["tool"] in {"verify_full_name", "verify_dob"}]
+        if identity_tools:
+            notes.append("GPT → " + ", ".join(identity_tools) + " → GPT review")
         if turn.emergency:
             notes.append(f"{turn.emergency.kind} emergency ({turn.emergency.source}): {turn.emergency.reason}")
         if turn.blocked:
@@ -103,9 +114,11 @@ def run_interactive_call(agent):
     return voice.end_call()
 
 
-DEMO_SCRIPT = [  # follows Clara's opening, "May I speak with Sarah Martinez, please?"
-    ("patient", "Yes, this is Sarah."),
-    ("agent", "Thanks, Sarah. I'm calling to check in on how you're doing with your diabetes management. "
+DEMO_SCRIPT = [  # Illustrative transcript only; demo mode does not execute tools or call a model.
+    ("patient", "Sarah Martinez"),
+    ("agent", DOB_QUESTION),
+    ("patient", "[Date of birth provided]"),
+    ("agent", "Thank you for verifying your identity. I'm calling to check in on your diabetes management. "
               "How have you been feeling lately?"),
     ("patient", "Well, I've been pretty stressed lately. My sugars have been all over the place."),
     ("agent", "I'm sorry, that sounds hard. Have you been able to take your medications as prescribed?"),

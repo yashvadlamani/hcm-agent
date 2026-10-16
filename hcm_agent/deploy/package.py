@@ -28,14 +28,16 @@ def app_files() -> list[tuple[Path, str]]:
 
 def server_files() -> list[tuple[Path, str]]:
     # requirements.txt at the root tells App Service what to install; gunicorn imports hcm_agent.
-    return [(ROOT / "requirements.txt", "requirements.txt")] + app_files()
+    return [(ROOT / "requirements.txt", "requirements.txt"),
+            (ROOT / "data" / "demo_members.json", "data/demo_members.json")] + app_files()
 
 
 def function_files() -> list[tuple[Path, str]]:
     # function_app.py, host.json and requirements.txt must sit at the root of a Function package.
     return [(path, path.relative_to(FUNCTION).as_posix())
             for path in sorted(FUNCTION.rglob("*"))
-            if path.is_file() and "__pycache__" not in path.parts] + app_files()
+            if path.is_file() and "__pycache__" not in path.parts] + app_files() + [
+                (ROOT / "data" / "demo_members.json", "data/demo_members.json")]
 
 
 def build(files: list[tuple[Path, str]], target: str) -> None:

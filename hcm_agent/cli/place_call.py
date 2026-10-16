@@ -7,7 +7,7 @@ Usage:
 import argparse
 
 from .. import config
-from ..telephony.outbound import CallNotAllowed, place_call
+from ..telephony.outbound import CallNotAllowed, place_member_call
 
 
 def main() -> None:
@@ -28,7 +28,7 @@ def main() -> None:
         problems.append("Pass --url or set CLARA_BASE_URL")
     try:
         config.require(problems)
-        sid = place_call(settings, base_url, args.to, args.name, reason=args.reason,
+        sid = place_member_call(settings, base_url, args.to, args.name, reason=args.reason,
                          on_wait=lambda: print("Waking the server (this can take up to a minute)..."))
     except (config.ConfigError, CallNotAllowed, TimeoutError) as e:
         raise SystemExit(str(e))

@@ -1,5 +1,7 @@
-anthropic
-openai
+langchain>=1,<2
+langgraph>=1,<2
+langchain-openai>=1,<2
+langchain-anthropic>=1,<2
 python-dotenv
 azure-communication-callautomation
 flask

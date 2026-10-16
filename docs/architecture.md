@@ -46,16 +46,7 @@ sequenceDiagram
 ```
 
 1. **Start.** A JSON request lands in `call-requests/incoming/`, or someone runs `clara-call`. The function checks the request, wakes the server and asks ACS to dial.
-2. **Connect and confirm who answered.** When someone answers, ACS sends `CallConnected`. Clara says *"Hi, I'm Clara, a virtual assistant from your health insurance care team. May I speak with {name}, please?"* For privacy, **nothing health-related is said until the patient confirms who they are.**
-
-   | Answer | What Clara does |
-   |---|---|
-   | *"Yes, this is Maria"*, *"Speaking"* | *"Thanks, Maria. I'm calling to check in on how you're doing with your diabetes management…"* (the wording follows the request's `for` field), then the check-in |
-   | *"No, this is John"*, *"She's not home"* | *"What would be a good time to reach Maria?"* She notes the answer and ends politely. If a time was already given, she notes it right away |
-   | *"Wrong number"* | Apologizes and ends the call |
-   | Unclear | Asks once more, then asks for a good time |
-
-   The callback time and who answered appear on the dashboard. Clara doesn't promise a callback: scheduled callbacks are on the [roadmap](./roadmap.md).
+2. **Connect and verify identity.** When ACS sends `CallConnected`, Clara introduces herself as an automated Blue Cross Blue Shield care management assistant and asks for the caller's full name. GPT invokes `verify_full_name` and reviews its result; a matching first name or bounded phonetic spelling variant can pass this first step. Clara then asks for month, day and year of birth. GPT invokes `verify_dob` and reviews the result against the server-owned record. Only both successful steps unlock the reason for outreach. A mismatch plays an apology and disconnects after playback; service failures get an unavailable message. See [the live identity flow](architecture/workflow-and-tools.md#live-identity-verification).
 3. **Each turn.** ACS transcribes the patient and sends `RecognizeCompleted`. The agent ([`conversation.py`](../hcm_agent/agent/conversation.py)):
    1. runs an **instant keyword check** for emergencies, such as "chest pain" or "want to die". On a match it skips the model entirely.
    2. makes **one model request** that returns structured JSON: Clara's reply, a **clinical emergency assessment**, the patient's **sentiment** (0–1: how satisfied they seem with the call at that moment), and the **conversation state**.
@@ -104,7 +95,9 @@ The feedback answer is recorded but no text is sent yet: the ACS trial number ca
 |---|---|
 | [`hcm_agent/config.py`](../hcm_agent/config.py) | Every setting, read from the environment or `.env`, checked at startup |
 | [`hcm_agent/agent/`](../hcm_agent/agent/) | The conversation: `conversation.py` (call state and guardrail enforcement), `llm.py` (Azure OpenAI or Claude), `prompts.py`, `guardrails.py` |
-| [`hcm_agent/telephony/`](../hcm_agent/telephony/) | Calls: `server.py` (ACS events, `/live`), `outbound.py` (placing calls), `call_requests.py` (request validation), `live_feed.py` and `static/live.html` (dashboard) |
+| [`hcm_agent/workflows/`](../hcm_agent/workflows/) | Native LangGraph model/tool loop, mandatory pre-call authorization, and verified-member care |
+| [`hcm_agent/tools/`](../hcm_agent/tools/) | Domain tool contracts and the gateway that enforces actor, tenant, purpose, scope, and member boundaries |
+| [`hcm_agent/telephony/`](../hcm_agent/telephony/) | Calls: `server.py` (ACS events, `/live`), `outbound.py` (legacy and policy-authorized dialing), `call_requests.py` (request validation), `live_feed.py` and `static/live.html` (dashboard) |
 | [`hcm_agent/cli/`](../hcm_agent/cli/) | `clara-call` (place a call) and `clara-chat` (talk to Clara in the terminal) |
 | [`hcm_agent/azure_functions/`](../hcm_agent/azure_functions/) | The call-request Azure Function, deployed separately |
 | [`hcm_agent/deploy/`](../hcm_agent/deploy/) | Deploy, start and stop scripts, and the packaging script |

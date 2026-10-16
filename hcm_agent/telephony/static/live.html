@@ -225,13 +225,16 @@ function renderCall() {
     feedback.textContent = call.feedback ? "Feedback form: requested" : "Feedback form: declined";
   }
   const identity = $("head-identity");
-  identity.hidden = !call.callback && call.identity !== "wrong_number";
+  identity.hidden = !call.callback && !["wrong_number", "failed"].includes(call.identity);
   if (call.callback) {
     identity.className = "pill live";
     identity.textContent = `Callback requested: ${call.callback}`;
   } else if (call.identity === "wrong_number") {
     identity.className = "pill ended";
     identity.textContent = "Wrong number";
+  } else if (call.identity === "failed") {
+    identity.className = "pill ended";
+    identity.textContent = "Identity verification failed";
   }
   renderSentiment(call);
   updateMeta();
@@ -275,6 +278,7 @@ function renderCall() {
         `${e.kind === "mental_health" ? "Mental health crisis" : "Medical emergency"} detected by ${how}: ${reason}. Clara gave ${message} and ended the call.`));
     } else if (e.type === "identity") {
       const text = e.status === "confirmed" ? "Identity confirmed · patient on the line"
+        : e.status === "failed" ? "Identity verification failed · Clara apologized and ended the call"
         : e.status === "wrong_number" ? "Wrong number · Clara apologized and ended the call"
         : `Patient not available${e.spoke_with ? ` · spoke with ${e.spoke_with}` : ""}`;
       timeline.append(el("div", "divider", text));

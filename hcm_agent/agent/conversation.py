@@ -1,8 +1,8 @@
 """HCMVoiceAgent: runs one patient conversation and applies the safety guardrails.
 
 Each patient turn goes through take_turn():
-0. The opening: Clara asks for the patient by name and says nothing health-related until they
-   confirm. If someone else answers, she asks when to reach the patient and notes it.
+0. The opening: Clara introduces herself, then verifies full name and DOB through identity tools.
+   A mismatch ends the call before any member-specific health information is discussed.
 1. An instant keyword check for emergencies (a safety net that never waits on the model).
 2. One model request that returns Clara's reply plus a clinical emergency assessment, the
    patient's sentiment and the conversation state (see prompts.py, RESPONSE FORMAT).
@@ -16,16 +16,35 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 from typing import Optional, Tuple
 
 from .. import config
 from ..call_reasons import call_reason
+from ..tools import ToolCallContext, build_default_gateway
+from ..workflows.member_care import MemberCareGraph
 from .guardrails import GuardrailViolation, VoiceAgentGuardrails
+from .identity import verify_identity_turn
 from .llm import LLM, create_llm
 from .prompts import get_system_prompt
 
 logger = logging.getLogger(__name__)
+
+IDENTITY_OPENING = (
+    "Hello, this is Clara, an automated care management assistant with Blue Cross Blue Shield. "
+    "I'm here to help you with your care management needs. Before we begin, I need to verify whom "
+    "I'm speaking with. Could you please tell me your full name?"
+)
+DOB_QUESTION = ("Thank you. For verification, could you please tell me your date of birth, "
+                "including the month, day, and year?")
+IDENTITY_FAILURE = (
+    "I'm sorry, I couldn't verify your identity, so I can't continue this call. "
+    "If you need assistance, please contact your care management team using the number on your member ID card. "
+    "Thank you. Goodbye."
+)
+IDENTITY_UNAVAILABLE = (
+    "I'm sorry, I'm having trouble verifying your identity right now, so I can't continue this call. "
+    "Please contact your care management team using the number on your member ID card. Thank you. Goodbye."
+)
 
 REFUSAL_REPLY = ("I'm not able to help with that on this call, but your care team can. "
                  "Is there anything else on your mind today?")
@@ -70,23 +89,6 @@ SENTIMENT_WEIGHT = 0.6  # how much each new reading moves the score; the rest is
 CONVERSATION_STATES = ("ongoing", "needs_met", "patient_done")
 
 GOODBYE = re.compile(r"\b(bye|goodbye|hang up|that's all|that is all|gotta go|have to go)\b", re.IGNORECASE)
-# Opening: Clara confirms she's speaking with the patient before mentioning anything health-related.
-WRONG_NUMBER = re.compile(r"\b(wrong number|no one (by|with|named) that name|nobody (by|with|named) that name|"
-                          r"don't know (a|an|any|anyone|anybody)|no .{0,20} lives here)\b", re.IGNORECASE)
-NOT_AVAILABLE = re.compile(r"^\W*(no|nope|nah)\b|\b(not here|isn't here|is not here|not available|isn't available|"
-                           r"not home|isn't home|out right now|can't come to the phone|asleep|at work|busy right now|"
-                           r"call back later|not in)\b", re.IGNORECASE)
-CONFIRMED = re.compile(r"\b(yes|yeah|yep|yup|speaking|that's me|that is me|it's me|this is (she|he|her|him|me)|"
-                       r"you got (her|him|me)|uh huh|mhm|that's right|correct|i am|sure)\b", re.IGNORECASE)
-AFFIRMATIVE_START = re.compile(r"^\W*(yes|yeah|yep|yup|speaking|that's me|it's me|this is (she|he|me))\b",
-                               re.IGNORECASE)
-THIS_IS = re.compile(r"\b(?:this is|it's|i'm|i am|my name is)\s+([A-Za-z][A-Za-z'-]+)", re.IGNORECASE)
-NOT_NAMES = {"she", "he", "her", "him", "me", "his", "the", "a", "not", "just", "fine", "good", "busy", "sorry"}
-TIME_WORDS = re.compile(r"\b(tomorrow|tonight|today|morning|afternoon|evening|noon|weekend|monday|tuesday|"
-                        r"wednesday|thursday|friday|saturday|sunday|next week|later|o'clock|\d{1,2}(:\d{2})?\s*"
-                        r"(am|pm|a\.m\.|p\.m\.)?|after \w+|before \w+|around \w+)\b", re.IGNORECASE)
-MAX_VERIFY_ATTEMPTS = 2
-
 # "Is there anything else I can help you with?" answered with "No, that's all, thanks."
 ANYTHING_ELSE = re.compile(r"\banything else\b", re.IGNORECASE)
 NOTHING_ELSE = re.compile(r"^\W*(no|nope|nah|not really|nothing|that's (all|it|everything)|that is all|"
@@ -122,10 +124,10 @@ class Turn:
     blocked: Optional[dict] = None          # a reply the guardrails replaced: {"rule", "text"}
     end_reason: Optional[str] = None        # set when action is "hang_up"
     feedback_opt_in: Optional[bool] = None  # set when the patient answers the feedback question
-    identity: Optional[str] = None          # when the opening resolves: confirmed, not_available or wrong_number
+    identity: Optional[str] = None          # when the opening resolves: confirmed or failed
     spoke_with: Optional[str] = None        # who answered instead, if they gave a name
     callback_time: Optional[str] = None     # when to reach the patient, in the words used
-    phase: str = "conversation"             # "verify", "callback", "conversation", "feedback" or "ended"
+    phase: str = "conversation"             # verify_name, verify_dob, conversation, feedback or ended
     used_model: bool = False
 
 
@@ -140,17 +142,24 @@ class HCMVoiceAgent:
         self.guardrails = VoiceAgentGuardrails()
         self.initialize_call()
 
-    def initialize_call(self, patient_context: Optional[dict] = None) -> None:
+    def initialize_call(self, patient_context: Optional[dict] = None, identity_record: Optional[dict] = None) -> None:
         self.patient_context = patient_context or {}
+        self.identity_record = dict(identity_record or {})
+        self.identity_gateway = build_default_gateway()
+        self.identity_context = ToolCallContext(
+            "clara-identity", self.identity_record.get("tenant_id", "unresolved"), "care_management",
+            self.identity_record.get("member_id", "unresolved"),
+            frozenset({"care_outreach", "member_verify", "safety_escalation"}),
+        )
+        self.care_graph = MemberCareGraph(self.identity_gateway)
         self.conversation_history: list[dict[str, str]] = []
         self.is_emergency = False
         self.escalation_reason: Optional[str] = None
         self.emergency: Optional[Emergency] = None
         self.last_blocked_reply: Optional[dict] = None
         self.sentiment = NEUTRAL_SENTIMENT
-        # With a known name, the call opens by confirming who answered; otherwise it starts the check-in.
-        self.phase = "verify" if self._patient_name() else "conversation"
-        self.verify_attempts = 0
+        # Every call starts with name and DOB verification, including unresolved member records.
+        self.phase = "verify_name"
         self.identity: Optional[str] = None
         self.spoke_with: Optional[str] = None
         self.callback_time: Optional[str] = None
@@ -169,11 +178,7 @@ class HCMVoiceAgent:
 
     def opening(self) -> str:
         """Clara's first words. Nothing health-related is said until the patient confirms who they are."""
-        name = self._patient_name()
-        if self.phase == "verify":
-            return (f"Hi, I'm Clara, a virtual assistant from your health insurance care team. "
-                    f"May I speak with {name}, please?")
-        return f"Hi, this is Clara, a virtual assistant from your health insurance care team. {self._why_calling()}"
+        return IDENTITY_OPENING
 
     def _why_calling(self) -> str:
         """The reason for the call in words meant for the patient, then Clara's first question."""
@@ -187,6 +192,9 @@ class HCMVoiceAgent:
         self.last_blocked_reply = None
         said = patient_message.strip()
 
+        if self.phase == "ended":
+            return Turn(reply="", action="hang_up", sentiment=self.sentiment, phase="ended", end_reason=self.end_reason)
+
         # 1. Instant safety net, in every phase.
         is_emergency, reason = self.process_patient_input(said)
         if is_emergency:
@@ -198,11 +206,9 @@ class HCMVoiceAgent:
         if (self.phase == "feedback" or GOODBYE.search(said) or nothing_else) and POSITIVE.search(said):
             self._update_sentiment(POSITIVE_READING)
 
-        # Opening: confirm who answered, or take a time to reach the patient.
-        if self.phase == "verify":
-            return self._verify(said)
-        if self.phase == "callback":
-            return self._record_callback(said)
+        # Opening: GPT interprets each identity answer and reviews the tool's decision.
+        if self.phase in ("verify_name", "verify_dob"):
+            return self._verify_identity(said)
 
         # 2. Answering the feedback question ends the call.
         if self.phase == "feedback":
@@ -222,8 +228,11 @@ class HCMVoiceAgent:
         # 5. Ask the model.
         self.conversation_history.append({"role": "user", "content": said})
         try:
-            raw = self.llm.complete(get_system_prompt(self.patient_context), self.conversation_history,
-                                    json_mode=True)
+            raw = self.care_graph.respond(
+                self.llm, self.identity_context, self.identity_record.get("profile", {}),
+                get_system_prompt(self.patient_context), self.conversation_history,
+                verified=self.identity == "confirmed",
+            )
         except Exception as e:
             logger.error("Error generating response: %s", e)
             return self._reply(ERROR_REPLY, used_model=True)
@@ -264,6 +273,34 @@ class HCMVoiceAgent:
         return is_emergency, reason
 
     # ---- Steps ----
+
+    def _verify_identity(self, said: str) -> Turn:
+        """Name then DOB, through the identity family; a failed check ends the call."""
+        name_step = self.phase == "verify_name"
+        verified, reason = verify_identity_turn(self.llm, self.identity_gateway, self.identity_context,
+                                                self.identity_record, self.phase, said)
+        recorded = "[Full name provided]" if name_step else "[Date of birth provided]"
+        if not verified:
+            self.identity_gateway.invoke("record_verification_failure", self.identity_context,
+                                         {"reason": reason})
+            unavailable = reason == "identity_service_error"
+            reply = IDENTITY_UNAVAILABLE if unavailable else IDENTITY_FAILURE
+            self._remember(recorded, reply)
+            end_reason = "Identity verification unavailable" if unavailable else "Identity verification failed"
+            turn = self._end_opening("failed", end_reason, reply)
+            turn.used_model = True
+            return turn
+        if name_step:
+            self.phase = "verify_dob"
+            self._remember(recorded, DOB_QUESTION)
+            return Turn(reply=DOB_QUESTION, action="listen", sentiment=self.sentiment, phase=self.phase,
+                        used_model=True)
+        self.identity, self.phase = "confirmed", "conversation"
+        self.patient_context["name"] = self.identity_record["name"]
+        reply = f"Thank you for verifying your identity. {self._why_calling()}"
+        self._remember(recorded, reply)
+        return Turn(reply=reply, action="listen", sentiment=self.sentiment, identity="confirmed", phase=self.phase,
+                    used_model=True)
 
     def _reply(self, text: str, used_model: bool = False) -> Turn:
         if not self.conversation_history or self.conversation_history[-1]["role"] != "assistant":
@@ -315,59 +352,6 @@ class HCMVoiceAgent:
         name = (self.patient_context.get("name") or "").strip()
         return name if name and name.lower() != "there" else None
 
-    def _verify(self, said: str) -> Turn:
-        """Is this the patient? Confirmed → the check-in; someone else → ask when to reach the patient."""
-        name = self._patient_name()
-        first = name.split()[0].lower()
-        stated = next((m.group(1) for m in THIS_IS.finditer(said) if m.group(1).lower() not in NOT_NAMES), None)
-        if stated and stated.lower().endswith(("'s", "’s")):
-            stated = None  # "this is Maria's husband" names the patient, not the speaker
-
-        if WRONG_NUMBER.search(said):
-            reply = "I'm sorry to have bothered you. Have a good day. Goodbye."
-            self._remember(said, reply)
-            return self._end_opening("wrong_number", "Wrong number", reply)
-
-        # Speech recognition often misspells names ("Yesh" for "Yash"), so close spellings count as a match,
-        # and an answer that opens with a clear yes confirms whatever name follows.
-        is_someone_else = (stated is not None and not same_name(stated, first)
-                           and not (AFFIRMATIVE_START.search(said) and not NOT_AVAILABLE.search(said)))
-        if NOT_AVAILABLE.search(said) or is_someone_else:
-            self.spoke_with = stated.capitalize() if is_someone_else else None
-            if TIME_WORDS.search(said) and not re.fullmatch(r"\W*(no|nope|nah)\W*", said, re.IGNORECASE):
-                return self._record_callback(said)  # they already said when, e.g. "she's back after 5"
-            # Privacy: say nothing about the reason for the call to anyone but the patient.
-            reply = f"No problem. What would be a good time to reach {name}?"
-            self._remember(said, reply)
-            self.phase = "callback"
-            return Turn(reply=reply, action="listen", sentiment=self.sentiment, identity="not_available",
-                        spoke_with=self.spoke_with, phase=self.phase)
-
-        if CONFIRMED.search(said) or (stated is not None and same_name(stated, first)):
-            self.identity = "confirmed"
-            reply = f"Thanks, {name.split()[0]}. {self._why_calling()}"
-            self._remember(said, reply)
-            self.phase = "conversation"
-            return Turn(reply=reply, action="listen", sentiment=self.sentiment, identity="confirmed", phase=self.phase)
-
-        self.verify_attempts += 1
-        if self.verify_attempts >= MAX_VERIFY_ATTEMPTS:
-            reply = f"I'm sorry, I'll let you go. What would be a good time to reach {name}?"
-            self.phase = "callback"
-        else:
-            reply = f"Sorry, I didn't catch that. Am I speaking with {name}?"
-        self._remember(said, reply)
-        return Turn(reply=reply, action="listen", sentiment=self.sentiment, phase=self.phase)
-
-    def _record_callback(self, said: str) -> Turn:
-        """Note when to reach the patient. No promise to call: scheduling callbacks comes later."""
-        self.callback_time = said.strip()
-        reply = "Thank you, I've noted that. Have a good day. Goodbye."
-        self._remember(said, reply)
-        turn = self._end_opening("not_available", "Patient not available", reply)
-        turn.callback_time = self.callback_time
-        return turn
-
     def _end_opening(self, identity: str, reason: str, reply: str) -> Turn:
         self.identity, self.phase, self.end_reason = identity, "ended", reason
         return Turn(reply=reply, action="hang_up", sentiment=self.sentiment, end_reason=reason, identity=identity,
@@ -411,14 +395,6 @@ class HCMVoiceAgent:
             role = "Patient" if msg["role"] == "user" else "Agent"
             transcript += f"\n{role}: {msg['content']}\n"
         return transcript
-
-
-def same_name(heard: str, expected: str) -> bool:
-    """Whether a name heard over the phone matches the patient's, allowing for transcription slips."""
-    heard, expected = heard.lower().strip(".,!? "), expected.lower()
-    if heard == expected:
-        return True
-    return heard[:1] == expected[:1] and SequenceMatcher(None, heard, expected).ratio() >= 0.6
 
 
 def spoken(text: str) -> str:

@@ -1,0 +1,102 @@
+{
+  "dataset": "clara-demo-members",
+  "classification": "synthetic demo data with one user-provided profile",
+  "tenant_id": "demo-health-plan",
+  "members": [
+    {
+      "member_id": "demo-himanshu-gupta",
+      "name": "Himanshu Gupta",
+      "date_of_birth": "1991-07-28",
+      "phone": "+19794223275",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/Chicago",
+        "calling_window": {"start_hour": 0, "end_hour": 24}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 100
+      },
+      "scenario": "Eligible: consented, callable, and high weekly frequency limit."
+    },
+    {
+      "member_id": "demo-elena-ramirez",
+      "name": "Elena Ramirez",
+      "date_of_birth": "1987-06-14",
+      "phone": "+15555550102",
+      "communication": {
+        "language": "es-US",
+        "local_timezone": "America/Los_Angeles",
+        "calling_window": {"start_hour": 9, "end_hour": 18}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": true,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Blocked: the member has an active do-not-call preference."
+    },
+    {
+      "member_id": "demo-marco-lee",
+      "name": "Marco Lee",
+      "date_of_birth": "1975-11-03",
+      "phone": "+15555550103",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/New_York",
+        "calling_window": {"start_hour": 8, "end_hour": 20}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 1,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Blocked: the once-per-week outreach limit has already been reached."
+    },
+    {
+      "member_id": "demo-aisha-patel",
+      "name": "Aisha Patel",
+      "date_of_birth": "1993-02-21",
+      "phone": "+15555550104",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/Denver",
+        "calling_window": {"start_hour": 10, "end_hour": 16}
+      },
+      "outreach": {
+        "consent": false,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Blocked: no recorded outreach consent, despite DNC being false."
+    },
+    {
+      "member_id": "demo-noah-williams",
+      "name": "Noah Williams",
+      "date_of_birth": "1968-09-09",
+      "phone": "+15555550105",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/Phoenix",
+        "calling_window": {"start_hour": 13, "end_hour": 17}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Time-dependent: eligible only from 1pm through 5pm in the member's local time."
+    }
+  ]
+}
