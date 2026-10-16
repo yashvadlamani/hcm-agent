@@ -32,7 +32,15 @@
   aside { border-right: 1px solid var(--line); background: var(--panel); overflow-y: auto; }
   aside h2 { margin: 0; padding: 14px 16px 8px; font-size: 12px; text-transform: uppercase;
              letter-spacing: .04em; color: var(--muted); }
-  .call-item { display: block; width: 100%; text-align: left; border: 0; background: none;
+  .aside-heading { display: flex; align-items: center; justify-content: space-between; padding-right: 12px; }
+  .aside-heading h2 { flex: 1; }
+  .bulk-actions { display: flex; align-items: center; gap: 8px; padding: 0 14px 10px; color: var(--muted); font-size: 12px; }
+  .bulk-actions[hidden] { display: none; }
+  .bulk-delete { border: 1px solid #efb6bb; border-radius: 7px; background: var(--bad-soft); color: var(--bad);
+                 padding: 5px 8px; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+  .bulk-delete:disabled { opacity: .5; cursor: not-allowed; }
+  .select-all { border: 0; background: none; color: var(--accent); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+  .call-item { display: flex; width: 100%; text-align: left; border: 0; background: none;
                color: inherit; font: inherit; padding: 10px 16px; border-left: 3px solid transparent;
                cursor: pointer; }
   .call-item:hover { background: var(--bg); }
@@ -40,15 +48,22 @@
   .call-item .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .call-item .name { font-weight: 600; }
   .call-item .sub { color: var(--muted); font-size: 12px; }
+  .call-select { width: 15px; height: 15px; margin: 2px 10px 0 0; accent-color: var(--accent); flex: 0 0 auto; }
+  .call-summary { min-width: 0; flex: 1; cursor: pointer; }
   .pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
   .pill.live { background: var(--accent-soft); color: var(--accent); }
   .pill.ended { background: var(--patient); color: var(--muted); }
   .pill.emergency { background: var(--bad-soft); color: var(--bad); }
-  section { display: flex; flex-direction: column; min-width: 0; }
-  .call-head { padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  section { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+  .call-head { position: relative; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
   .call-head .title { font-size: 15px; font-weight: 600; display: flex; gap: 10px; align-items: center; }
   .call-head .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
-  .timeline { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .kpi-collapse { position: absolute; top: 18px; right: 28px; border: 1px solid var(--line); border-radius: 7px;
+                  background: var(--panel); color: var(--accent); padding: 6px 9px; font: inherit; font-size: 12px;
+                  font-weight: 650; cursor: pointer; }
+  .kpi-collapse:hover { background: var(--accent-soft); }
+  .call-head.kpis-collapsed .dashboard-row { display: none; }
+  .timeline { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
   .msg { max-width: 72%; }
   .msg.clara { align-self: flex-start; } .msg.patient { align-self: flex-end; text-align: right; }
   .who { font-size: 12px; color: var(--muted); margin-bottom: 3px; }
@@ -117,12 +132,103 @@
     aside { max-height: 30vh; border-right: 0; border-bottom: 1px solid var(--line); }
     .msg { max-width: 88%; }
   }
+  /* Call-operations dashboard: a light, blue-led layout optimized for live scanning. */
+  :root { --bg: #f7f9fc; --panel: #fff; --line: #dce5f2; --text: #13233f; --muted: #61718a;
+          --accent: #2563eb; --accent-soft: #edf4ff; --patient: #f1f5f9; --ok: #14804a;
+          --warn: #a86609; --warn-soft: #fff6e5; --bad: #c43d48; --bad-soft: #fff0f1; }
+  header { padding: 16px 24px; box-shadow: 0 1px 5px rgba(15, 23, 42, .04); }
+  header h1 { font-size: 20px; color: #0f2650; }
+  .header-actions { display: flex; align-items: center; gap: 14px; }
+  .theme-toggle { border: 1px solid var(--line); background: var(--panel); color: #294369; border-radius: 8px;
+                  padding: 7px 10px; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+  .theme-toggle:hover { background: var(--accent-soft); border-color: #b9cff4; }
+  main { grid-template-columns: 290px minmax(0, 1fr); height: calc(100vh - 60px); }
+  aside h2 { padding: 20px 18px 10px; font-size: 13px; }
+  .call-item { padding: 13px 18px; border-left-width: 4px; }
+  .call-item.selected { background: #eaf2ff; }
+  .call-head { padding: 20px 28px 16px; }
+  .call-head .title { font-size: 25px; color: #112b59; }
+  .call-head .meta { font-size: 13px; margin-top: 7px; }
+  .dashboard-row { display: grid; grid-template-columns: repeat(3, minmax(142px, .85fr)) minmax(320px, 2.15fr);
+                   gap: 12px; margin-top: 18px; }
+  .kpi, .response-card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); min-height: 128px; }
+  .kpi { padding: 14px; position: relative; }
+  .kpi-label { color: var(--muted); font-size: 12px; font-weight: 650; }
+  .kpi-value { color: #10264e; font-size: 29px; font-weight: 700; line-height: 1.2; margin-top: 7px; }
+  .kpi-detail { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .kpi-icon { float: right; width: 33px; height: 33px; border-radius: 50%; display: grid; place-items: center;
+              font-size: 17px; font-weight: 700; color: var(--accent); background: #e5f0ff; }
+  .kpi-icon.purple { color: #7653c8; background: #f0eaff; }
+  .kpi-icon.amber { color: #a86609; background: #fff3d9; }
+  .priority-high { color: var(--bad); } .priority-medium { color: #a86609; } .priority-low { color: var(--ok); }
+  .avg-row { display: flex; align-items: center; gap: 8px; }
+  .avg-row .mood-pill { margin-top: 7px; }
+  .spark { width: 100%; height: 35px; margin-top: 6px; }
+  .response-card { padding: 13px 16px; }
+  .response-card .response-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .response-card h3 { margin: 0; color: #1c335a; font-size: 13px; }
+  .response-card strong { color: #10264e; font-size: 25px; }
+  .response-card span { color: var(--muted); font-size: 11px; }
+  .response-chart { width: 100%; height: 65px; display: block; margin-top: 8px; }
+  .workspace-tabs { display: flex; gap: 28px; padding: 0 28px; height: 45px; align-items: end; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .workspace-tab { height: 45px; display: flex; align-items: center; color: var(--muted); font-weight: 650; font-size: 13px; border-bottom: 3px solid transparent; }
+  .workspace-tab.active { color: var(--accent); border-color: var(--accent); }
+  button.workspace-tab { background: none; border-top: 0; border-left: 0; border-right: 0; cursor: pointer; font: inherit; }
+  .trace-panel { flex: 1; min-height: 0; overflow: auto; padding: 24px 28px; background: var(--bg); }
+  .agentic-heading { margin-bottom: 16px; }
+  .agentic-heading h3 { margin: 0; color: #1c335a; font-size: 17px; }
+  .agentic-heading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+  .turn-dag { display: flex; gap: 14px; min-width: max-content; padding-bottom: 8px; }
+  .turn-column { width: 280px; min-height: 355px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(180deg, #f4f8ff 0, var(--panel) 100%); }
+  .turn-column.current { border-color: #91b6f4; box-shadow: inset 0 0 0 1px #d9e8ff; }
+  .turn-heading { margin-bottom: 15px; color: #1c335a; font-size: 13px; font-weight: 700; }
+  .turn-status { margin-left: 5px; color: var(--ok); font-size: 11px; font-weight: 600; }
+  .trace-flow { display: flex; flex-direction: column; align-items: stretch; }
+  .trace-node { border: 1px solid #adc8f5; border-radius: 7px; background: var(--panel); color: #173a73; padding: 9px 10px; text-align: center; font-size: 12px; font-weight: 650; overflow-wrap: anywhere; }
+  .trace-node.router { background: #edf4ff; border-color: #83adf3; }
+  .trace-node.source { color: #526278; background: #f8fafc; border-style: dashed; font-weight: 550; }
+  .trace-node.reply { color: #17643d; background: #effbf4; border-color: #76c995; }
+  .trace-node.listening { color: var(--accent); background: var(--accent-soft); border-style: dashed; }
+  .trace-connector { height: 18px; position: relative; }
+  .trace-connector::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 1.5px solid var(--accent); }
+  .trace-connector::after { content: ""; position: absolute; bottom: 0; left: calc(50% - 3px); width: 6px; height: 6px; border-right: 1.5px solid var(--accent); border-bottom: 1.5px solid var(--accent); transform: rotate(45deg); }
+  .trace-branch { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  [data-theme="dark"] .agentic-heading h3, [data-theme="dark"] .turn-heading { color: #eef4ff; }
+  [data-theme="dark"] .turn-column { background: linear-gradient(180deg, #1b2a41 0, var(--panel) 100%); }
+  [data-theme="dark"] .trace-node { background: #1d2d45; border-color: #5477ad; color: #e5efff; }
+  [data-theme="dark"] .trace-node.router, [data-theme="dark"] .trace-node.listening { background: #203a63; }
+  [data-theme="dark"] .trace-node.source { background: #182434; color: #c2d0e5; }
+  [data-theme="dark"] .trace-node.reply { background: #193b2b; color: #c4f3d8; border-color: #438a62; }
+  .timeline { padding: 22px 28px; background: var(--bg); }
+  .msg { max-width: 76%; }
+  .bubble { box-shadow: 0 1px 2px rgba(15, 23, 42, .03); }
+  .clara .bubble { background: #eaf2ff; color: #183b74; }
+  .patient .bubble { background: #fff; border: 1px solid var(--line); }
+  .tag { display: inline-block; border-radius: 999px; background: #edf4ff; color: #35619e; padding: 2px 7px; }
+  .divider { background: #fff; }
+  @media (max-width: 1050px) { .dashboard-row { grid-template-columns: repeat(3, 1fr); } .response-card { grid-column: 1 / -1; } }
+  [data-theme="dark"] { --bg: #101827; --panel: #172235; --line: #2d3c53; --text: #e7eefb; --muted: #9babc3;
+                          --accent: #70a5ff; --accent-soft: #203a63; --patient: #243247; --ok: #51c580;
+                          --warn: #e5ae53; --warn-soft: #3f321c; --bad: #ff858f; --bad-soft: #48242b; }
+  [data-theme="dark"] header h1, [data-theme="dark"] .call-head .title, [data-theme="dark"] .kpi-value,
+  [data-theme="dark"] .response-card strong, [data-theme="dark"] .response-card h3 { color: #eef4ff; }
+  [data-theme="dark"] .theme-toggle { color: #d9e6fb; }
+  [data-theme="dark"] .kpi-collapse { color: #9fc0ff; }
+  [data-theme="dark"] .call-item .name { color: #eef4ff; }
+  [data-theme="dark"] .call-item.selected { background: #203a63; border-left-color: #70a5ff; }
+  [data-theme="dark"] .call-item.selected .sub { color: #c7d7ef; }
+  [data-theme="dark"] .call-item:hover { background: #1d2a3d; }
+  [data-theme="dark"] .workspace-tab { color: #b9c7db; }
+  [data-theme="dark"] .workspace-tab.active { color: #8ab5ff; border-color: #70a5ff; }
+  [data-theme="dark"] .clara .bubble { background: #203a63; color: #e6efff; }
+  [data-theme="dark"] .patient .bubble, [data-theme="dark"] .divider { background: #1d2a3d; }
+  [data-theme="dark"] .kpi, [data-theme="dark"] .response-card { box-shadow: none; }
 </style>
 </head>
 <body>
 <header>
   <h1>Clara <span id="page-kind">· Live calls</span></h1>
-  <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">Connecting…</span></div>
+  <div class="header-actions"><button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">Dark mode</button><div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">Connecting…</span></div></div>
 </header>
 <main>
   <aside>
@@ -139,24 +245,23 @@
         <div class="error" id="setup-error" hidden></div>
       </form>
     </div>
-    <h2>Recent calls</h2>
+    <div class="aside-heading"><h2>Recent calls</h2><button class="select-all" id="select-all" type="button">Select all</button></div>
+    <div class="bulk-actions" id="bulk-actions" hidden><span id="selected-count">0 selected</span><button class="bulk-delete" id="bulk-delete" type="button" disabled>Delete selected</button></div>
     <div id="call-list"></div>
   </aside>
   <section>
     <div class="call-head" id="call-head" hidden>
+      <button class="kpi-collapse" id="kpi-collapse" type="button" aria-expanded="true">Hide KPIs</button>
       <div class="title"><span id="head-name"></span><span class="pill" id="head-status"></span><span class="pill" id="head-feedback" hidden></span><span class="pill" id="head-identity" hidden></span></div>
       <div class="meta" id="head-meta"></div>
-      <div class="sentiment" id="sentiment">
-        <div>
-          <div class="label">Patient satisfaction with the call</div>
-          <div class="score"><span id="sent-score">0.50</span><span class="mood-pill neutral" id="sent-label">Neutral</span></div>
-          <div class="meter"><div class="mark" id="sent-mark" style="left: calc(50% - 1px)"></div></div>
-          <div class="scale"><span>0 dissatisfied</span><span>0.5</span><span>1 satisfied</span></div>
-          <div class="label" id="sent-hint" hidden>Updates after Clara's first reply</div>
-        </div>
-        <svg class="trend" id="sent-trend" viewBox="0 0 300 80" preserveAspectRatio="none" role="img" aria-label="Satisfaction trend"></svg>
+      <div class="dashboard-row" aria-label="Live call metrics">
+        <div class="kpi"><span class="kpi-icon">✓</span><div class="kpi-label">Identity verified</div><div class="kpi-value" id="identity-value">Pending</div><div class="kpi-detail" id="identity-detail">Name and DOB required</div></div>
+        <div class="kpi"><div class="kpi-label">Average satisfaction score</div><div class="avg-row"><div class="kpi-value" id="avg-score">0.50</div><span class="mood-pill neutral" id="avg-label">Neutral</span></div><svg class="spark" id="satisfaction-chart" viewBox="0 0 220 35" preserveAspectRatio="none" role="img" aria-label="Estimated satisfaction trend"></svg></div>
+        <div class="kpi"><span class="kpi-icon amber">↗</span><div class="kpi-label">Follow-up priority</div><div class="kpi-value priority-low" id="priority-level">Low</div><div class="kpi-detail" id="priority-reason">No follow-up signal captured</div></div>
+        <div class="response-card"><div class="response-head"><h3>Call quality · response time</h3><div><strong id="response-average">—</strong> <span>avg</span></div></div><svg class="response-chart" id="response-chart" viewBox="0 0 520 65" preserveAspectRatio="none" role="img" aria-label="Clara response time by turn"></svg><span>Clara response time · updates after each reply</span></div>
       </div>
     </div>
+    <nav class="workspace-tabs" aria-label="Call detail sections"><button class="workspace-tab active" type="button" data-tab="transcript">Transcript</button><button class="workspace-tab" type="button" data-tab="tools">Tools &amp; sources</button></nav>
     <div class="timeline" id="timeline">
       <div class="empty">
         <strong>No live or saved calls yet</strong>
@@ -183,8 +288,11 @@
 const calls = new Map();   // call ID -> { name, drivers, started, ended, status, events: [] }
 let selected = null;
 let userPicked = false;
+const selectedForDeletion = new Set();
+let activeTab = "transcript";
 let lastEventId = 0;   // the server replays its backlog on reconnect; skip what we've already shown
 let bootId = null;     // changes when the server restarts, which resets its event ids
+let kpisCollapsed = localStorage.getItem("clara-live-kpis-collapsed") === "true";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -209,6 +317,31 @@ const ESCALATION = {
 const mood = (v) => v < 0.35 ? "negative" : v > 0.65 ? "positive" : "neutral";
 const MOOD_LABEL = { negative: "Dissatisfied", neutral: "Neutral", positive: "Satisfied" };
 const arrow = (change) => change > 0 ? "▲" : change < 0 ? "▼" : "";
+const average = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+const averageSatisfaction = (call) => average(call.trend) ?? 0.5;
+
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const button = $("theme-toggle"), dark = theme === "dark";
+  button.textContent = dark ? "Light mode" : "Dark mode";
+  button.setAttribute("aria-pressed", String(dark));
+  localStorage.setItem("clara-live-theme", theme);
+}
+
+setTheme(localStorage.getItem("clara-live-theme") === "dark" ? "dark" : "light");
+$("theme-toggle").addEventListener("click", () => {
+  setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  if (selected) renderCall();
+});
+$("kpi-collapse").addEventListener("click", () => {
+  kpisCollapsed = !kpisCollapsed;
+  localStorage.setItem("clara-live-kpis-collapsed", String(kpisCollapsed));
+  if (selected) renderCall();
+});
+document.querySelectorAll("[data-tab]").forEach((tab) => tab.addEventListener("click", () => {
+  activeTab = tab.dataset.tab;
+  if (selected) renderCall();
+}));
 
 function handle(event, historical = false) {
   if (!historical && event.boot !== bootId) {
@@ -225,7 +358,7 @@ function handle(event, historical = false) {
   let call = calls.get(event.call);
   if (!call) {
     call = { name: "Unknown caller", drivers: [], reason: "", started: event.ts, ended: null, status: "live", events: [],
-             sentiment: 0.5, trend: [0.5], change: 0, feedback: null, identity: null, spokeWith: null, callback: null };
+             sentiment: 0.5, trend: [0.5], change: 0, feedback: null, identity: null, spokeWith: null, callback: null, traces: [] };
     calls.set(event.call, call);
   }
   if (event.type === "call_started") {
@@ -240,6 +373,7 @@ function handle(event, historical = false) {
   if (event.type === "feedback") call.feedback = event.requested;
   if (event.type === "identity") { call.identity = event.status; call.spokeWith = event.spoke_with; }
   if (event.type === "callback") call.callback = event.time;
+  if (event.type === "agent_trace") call.traces = event.entries || [];
   if (event.type === "emergency") call.status = "emergency";
   if (event.type === "call_ended") {
     call.ended = event.ts;
@@ -256,22 +390,59 @@ function renderList() {
   const list = $("call-list");
   list.replaceChildren();
   [...calls.entries()].reverse().forEach(([sid, call]) => {
-    const item = el("button", "call-item" + (sid === selected ? " selected" : ""));
+    const item = el("div", "call-item" + (sid === selected ? " selected" : ""));
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox"; checkbox.className = "call-select"; checkbox.checked = selectedForDeletion.has(sid);
+    checkbox.disabled = call.status === "live";
+    checkbox.setAttribute("aria-label", `Select ${call.name} for deletion`);
+    checkbox.onchange = () => { if (checkbox.checked) selectedForDeletion.add(sid); else selectedForDeletion.delete(sid); renderList(); };
+    const summary = el("div", "call-summary");
     const row = el("div", "row");
     row.append(el("span", "name", call.name));
     row.append(el("span", `pill ${call.status}`, call.status === "live" ? "Live" : call.status === "emergency" ? "Emergency" : "Ended"));
-    const sub = el("div", "sub", `${clock(call.started)} · satisfaction ${call.sentiment.toFixed(2)} `);
+    const sub = el("div", "sub", `${clock(call.started)} · satisfaction ${averageSatisfaction(call).toFixed(2)} `);
     if (call.change) sub.append(el("span", call.change > 0 ? "up" : "down", arrow(call.change)));
-    item.append(row, sub);
-    item.onclick = () => { selected = sid; userPicked = true; renderList(); renderCall(); updateComposer(); };
+    summary.append(row, sub);
+    summary.onclick = () => { selected = sid; userPicked = true; renderList(); renderCall(); updateComposer(); };
+    item.append(checkbox, summary);
     list.append(item);
   });
+  const completed = [...calls].filter(([, call]) => call.status !== "live").map(([sid]) => sid);
+  const count = selectedForDeletion.size;
+  $("bulk-actions").hidden = count === 0;
+  $("selected-count").textContent = `${count} selected`;
+  $("bulk-delete").disabled = count === 0;
+  $("select-all").textContent = completed.length && count === completed.length ? "Clear selection" : "Select all";
 }
+
+$("select-all").onclick = () => {
+  const completed = [...calls].filter(([, call]) => call.status !== "live").map(([sid]) => sid);
+  const allSelected = completed.length > 0 && completed.every((sid) => selectedForDeletion.has(sid));
+  if (allSelected) selectedForDeletion.clear(); else completed.forEach((sid) => selectedForDeletion.add(sid));
+  renderList();
+};
+
+$("bulk-delete").onclick = async () => {
+  const callIds = [...selectedForDeletion].filter((sid) => calls.get(sid)?.status !== "live");
+  if (!callIds.length || !window.confirm(`Delete ${callIds.length} saved conversation${callIds.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+  const response = await fetch("/live/history", { method: "DELETE", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ call_ids: callIds }) });
+  if (!response.ok) { window.alert("The selected conversations could not be deleted. Please try again."); return; }
+  const deleted = new Set((await response.json()).deleted || []);
+  deleted.forEach((sid) => calls.delete(sid));
+  selectedForDeletion.clear();
+  if (!calls.has(selected)) selected = calls.keys().next().value || null;
+  renderList();
+  if (selected) renderCall(); else { $("call-head").hidden = true; $("timeline").replaceChildren(el("div", "empty", "No saved conversations selected.")); }
+};
 
 function renderCall() {
   const call = calls.get(selected);
   if (!call) return;
   $("call-head").hidden = false;
+  $("call-head").classList.toggle("kpis-collapsed", kpisCollapsed);
+  $("kpi-collapse").textContent = kpisCollapsed ? "Show KPIs" : "Hide KPIs";
+  $("kpi-collapse").setAttribute("aria-expanded", String(!kpisCollapsed));
   $("head-name").textContent = call.name;
   const status = $("head-status");
   status.className = `pill ${call.status}`;
@@ -294,10 +465,13 @@ function renderCall() {
     identity.className = "pill ended";
     identity.textContent = "Identity verification failed";
   }
-  renderSentiment(call);
+  renderMetrics(call);
   updateMeta();
+  document.querySelectorAll("[data-tab]").forEach((tab) => tab.classList.toggle("active", tab.dataset.tab === activeTab));
+  if (activeTab === "tools") return renderToolsAndSources(call);
 
   const timeline = $("timeline");
+  timeline.className = "timeline";
   const atBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 60;
   timeline.replaceChildren();
   let waiting = false;
@@ -374,31 +548,159 @@ function renderCall() {
   updateComposer(waiting);
 }
 
-function renderSentiment(call) {
-  const value = call.sentiment, tone = mood(value);
-  $("sent-score").textContent = value.toFixed(2);
-  const label = $("sent-label");
-  label.className = `mood-pill ${tone}`;
-  label.textContent = MOOD_LABEL[tone];
-  $("sent-mark").style.left = `calc(${(value * 100).toFixed(0)}% - 1px)`;
-  $("sent-hint").hidden = call.trend.length > 1;  // still the 0.50 starting point: no reading yet
+function renderToolsAndSources(call) {
+  const panel = $("timeline");
+  panel.className = "trace-panel";
+  panel.replaceChildren();
+  const entries = call.traces || [];
+  const heading = el("div", "agentic-heading");
+  heading.append(el("h3", null, "Agentic timeline"),
+    el("p", null, "Agents, tools, and grounded sources activated during this call · updates live."));
+  panel.append(heading);
+  if (!entries.length) {
+    panel.append(el("div", "empty", "No agents or tools have run yet. The first completed patient turn will appear here."));
+    return;
+  }
+  const hasTurnIds = entries.some((entry) => Number.isInteger(entry.turn));
+  const byTurn = new Map();
+  entries.forEach((entry) => {
+    const turn = Number.isInteger(entry.turn) ? entry.turn : legacyTraceTurn(entry, hasTurnIds);
+    if (!byTurn.has(turn)) byTurn.set(turn, []);
+    byTurn.get(turn).push(entry);
+  });
+  const dag = el("div", "turn-dag");
+  [...byTurn.entries()].sort(([a], [b]) => a - b).forEach(([turn, turnEntries], index, all) => {
+    dag.append(renderTurnDag(turn, turnEntries, call.status === "live" && index === all.length - 1));
+  });
+  panel.append(dag);
+}
 
-  // Trend: one point per reading, 0 at the bottom and 1 at the top, with the 0.5 line dashed.
-  const svg = $("sent-trend"), ns = "http://www.w3.org/2000/svg";
+function legacyTraceTurn(entry, hasTurnIds) {
+  // Taylor's existing saved sample predates turn IDs. Preserve its useful timeline
+  // rather than placing every historical trace in one artificial "turn 0" column.
+  if (hasTurnIds) return 0;
+  if (entry.tool === "verify_full_name" || /capability_3_identity/.test(entry.name)) return 1;
+  if (entry.tool === "verify_dob") return 2;
+  return 4;
+}
+
+function agentLabel(capability) {
+  if (capability === "Care model") return "Conversation router (LLM)";
+  return capability.replace(/^Capability (\d+) · /, "Agent $1 · ");
+}
+
+function appendFlow(flow, node, className = "") {
+  if (flow.children.length) flow.append(el("div", "trace-connector"));
+  flow.append(el("div", `trace-node ${className}`, node));
+}
+
+function turnTitle(turn, entries) {
+  const names = new Set(entries.filter((entry) => entry.kind === "tool").map((entry) => entry.tool));
+  if (names.has("verify_full_name")) return `Turn ${turn} · Verify name`;
+  if (names.has("verify_dob")) return `Turn ${turn} · Verify date of birth`;
+  if (names.has("provider_directory_search")) return `Turn ${turn} · Provider question`;
+  if (names.has("lookup_policy")) return `Turn ${turn} · Policy question`;
+  if (names.has("request_appointment")) return `Turn ${turn} · Appointment request`;
+  return turn ? `Turn ${turn}` : "Earlier activity";
+}
+
+function renderTurnDag(turn, entries, current) {
+  const column = el("div", `turn-column${current ? " current" : ""}`);
+  const heading = el("div", "turn-heading", turnTitle(turn, entries));
+  heading.append(el("span", "turn-status", current ? "In progress" : "Completed"));
+  column.append(heading);
+  const flow = el("div", "trace-flow");
+  const agents = entries.filter((entry) => entry.kind === "agent" && entry.capability);
+  const tools = entries.filter((entry) => entry.kind === "tool" && entry.tool);
+  const shown = new Set();
+  const guards = agents.filter((entry) => /Capability [78] ·/.test(entry.capability));
+  if (guards.length === 2) {
+    const branch = el("div", "trace-branch");
+    guards.forEach((entry) => branch.append(el("div", "trace-node", agentLabel(entry.capability))));
+    flow.append(branch);
+  }
+  agents.filter((entry) => !/Capability [78] ·/.test(entry.capability)).forEach((entry) => {
+    appendFlow(flow, agentLabel(entry.capability), entry.capability === "Care model" ? "router" : "");
+    shown.add(entry.capability);
+  });
+  tools.forEach((entry) => {
+    if (!shown.has(entry.capability)) {
+      appendFlow(flow, agentLabel(entry.capability));
+      shown.add(entry.capability);
+    }
+    appendFlow(flow, `Tool · ${entry.tool}`);
+    if (entry.source) appendFlow(flow, `Source · ${entry.source}`, "source");
+  });
+  appendFlow(flow, current ? "Clara is preparing a reply" : "Clara reply", current ? "listening" : "reply");
+  column.append(flow);
+  return column;
+}
+
+function svgShape(svg, tag, attrs) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, value));
+  svg.append(node);
+}
+
+function drawLine(svg, values, { width, height, min = 0, max = 1, grid = false } = {}) {
   svg.replaceChildren();
-  const shape = (tag, attrs) => {
-    const node = document.createElementNS(ns, tag);
-    Object.entries(attrs).forEach(([k, v]) => node.setAttribute(k, v));
-    svg.append(node);
-  };
-  shape("rect", { x: 0, y: 0, width: 300, height: 28, fill: "var(--ok)", opacity: 0.08 });
-  shape("rect", { x: 0, y: 52, width: 300, height: 28, fill: "var(--bad)", opacity: 0.08 });
-  shape("line", { x1: 0, y1: 40, x2: 300, y2: 40, stroke: "var(--line)", "stroke-dasharray": "4 4" });
-  const pts = call.trend.map((v, i) => [call.trend.length === 1 ? 150 : 8 + (i * 284) / (call.trend.length - 1),
-                                        76 - v * 72]);
-  shape("polyline", { points: pts.map((p) => p.join(",")).join(" "), fill: "none",
-                      stroke: "var(--accent)", "stroke-width": 2, "vector-effect": "non-scaling-stroke" });
-  pts.forEach(([x, y]) => shape("circle", { cx: x, cy: y, r: 3, fill: "var(--accent)" }));
+  if (!values.length) return;
+  const padding = 5;
+  const dark = document.documentElement.dataset.theme === "dark";
+  svgShape(svg, "rect", { x: 0, y: 0, width, height, rx: 5, fill: dark ? "#162743" : "#eff6ff" });
+  if (grid) {
+    [0.25, 0.5, 0.75].forEach((fraction) => svgShape(svg, "line", {
+      x1: 0, y1: height * fraction, x2: width, y2: height * fraction, stroke: dark ? "#2d3c53" : "#dce5f2", "stroke-width": 1,
+    }));
+  }
+  const span = Math.max(max - min, 0.1);
+  const points = values.map((value, index) => [
+    values.length === 1 ? width / 2 : padding + index * (width - 2 * padding) / (values.length - 1),
+    height - padding - ((value - min) / span) * (height - 2 * padding),
+  ]);
+  svgShape(svg, "polyline", { points: points.map((point) => point.join(",")).join(" "), fill: "none",
+    stroke: "#2563eb", "stroke-width": 2.4, "stroke-linejoin": "round", "stroke-linecap": "round" });
+  points.forEach(([x, y]) => svgShape(svg, "circle", { cx: x, cy: y, r: 2.8, fill: "#2563eb" }));
+}
+
+function renderMetrics(call) {
+  const verified = call.identity === "confirmed";
+  $("identity-value").textContent = verified ? "Yes" : call.identity === "failed" ? "No" : "Pending";
+  $("identity-detail").textContent = verified ? "Name and DOB confirmed" : "Name and DOB required";
+
+  const satisfaction = averageSatisfaction(call);
+  const satisfactionLabel = $("avg-label");
+  satisfactionLabel.className = `mood-pill ${mood(satisfaction)}`;
+  satisfactionLabel.textContent = MOOD_LABEL[mood(satisfaction)];
+  $("avg-score").textContent = satisfaction.toFixed(2);
+  drawLine($("satisfaction-chart"), call.trend, { width: 220, height: 35 });
+
+  const priority = followUpPriority(call);
+  const priorityElement = $("priority-level");
+  priorityElement.textContent = priority.level;
+  priorityElement.className = `kpi-value priority-${priority.level.toLowerCase()}`;
+  $("priority-reason").textContent = priority.reason;
+
+  const latencies = call.events.filter((event) => event.type === "clara" && Number.isFinite(event.latency))
+    .map((event) => event.latency);
+  const average = latencies.length ? latencies.reduce((sum, value) => sum + value, 0) / latencies.length : null;
+  $("response-average").textContent = average === null ? "—" : `${average.toFixed(1)}s`;
+  drawLine($("response-chart"), latencies, { width: 520, height: 65, min: 0,
+    max: Math.max(3, ...(latencies.length ? latencies : [3])), grid: true });
+}
+
+function followUpPriority(call) {
+  if (call.events.some((event) => event.type === "emergency")) {
+    return { level: "High", reason: "Safety event detected" };
+  }
+  if (call.callback) {
+    return { level: "Medium", reason: "Callback preference captured" };
+  }
+  const guardrail = call.events.find((event) => event.type === "guardrail");
+  if (guardrail) {
+    return { level: "Medium", reason: "Care-team concern noted after guardrail review" };
+  }
+  return { level: "Low", reason: "No follow-up signal captured" };
 }
 
 function updateMeta() {
@@ -408,7 +710,7 @@ function updateMeta() {
   const turns = call.events.filter((e) => e.type === "patient").length;
   const parts = [`Started ${clock(call.started)}`, `Duration ${duration(end - call.started)}`, `${turns} patient turn${turns === 1 ? "" : "s"}`];
   if (call.reason) parts.push(`Calling for: ${call.reason}`);
-  if (call.drivers.length) parts.push(`Risk drivers: ${call.drivers.join(", ")}`);
+  // Risk drivers are deliberately not surfaced in the default live-call header.
   $("head-meta").textContent = parts.join(" · ");
 }
 setInterval(() => { const c = calls.get(selected); if (c && !c.ended) updateMeta(); }, 1000);

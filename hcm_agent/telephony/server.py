@@ -36,6 +36,7 @@ from .. import config
 from ..agent import HCMVoiceAgent
 from ..agent.llm import LLM, create_llm
 from ..call_reasons import CALL_REASONS, call_reason
+from ..observability import call_trace, trace_store
 from ..tools import security
 from ..workflows.member_data import DEMO_MEMBERS_PATH, identity_record_for_phone, load_demo_members
 from . import live_feed
@@ -79,6 +80,7 @@ class CallState:
     lock: threading.Lock = field(default_factory=threading.Lock)
     silent_turns: int = 0
     pending_response: Future | None = None
+    turn_number: int = 0
 
 
 calls: dict[str, CallState] = {}
@@ -189,6 +191,8 @@ def on_speech(call_id: str, data: dict) -> None:
         if not _latency_control(state, "start").get("allowed", False):
             return say_and_listen(call_id, clara_says(call_id, RESPONSE_TIMEOUT_REPLY, kind="system"))
         state.silent_turns = 0
+        state.turn_number += 1
+        turn_number = state.turn_number
         agent = state.agent
         audit_start = len(agent.identity_gateway.audit_log)
         if agent.phase in ("verify_name", "verify_dob"):
@@ -199,7 +203,7 @@ def on_speech(call_id: str, data: dict) -> None:
         live_feed.publish(call_id, "patient", text=recorded, confidence=speech.get("confidence"), redacted=redacted)
         sentiment_before, phase_before = agent.sentiment, agent.phase
         live_feed.publish(call_id, "thinking")
-        future = response_executor.submit(agent.take_turn, said)
+        future = response_executor.submit(_take_turn_with_trace, call_id, agent, said, turn_number)
         state.pending_response = future
 
     started = time.monotonic()
@@ -231,7 +235,7 @@ def on_speech(call_id: str, data: dict) -> None:
     latency = time.monotonic() - started
     _latency_control(state, "success")
     _clear_pending(state, future)
-    _deliver_turn(call_id, state, agent, turn, latency, sentiment_before, phase_before,
+    _deliver_turn(call_id, state, agent, turn, latency, sentiment_before, phase_before, turn_number,
                   tools=tools_used(agent, audit_start))
 
 
@@ -264,6 +268,10 @@ def tools_used(agent: HCMVoiceAgent, audit_start: int) -> list[dict]:
     return [{"tool": entry["tool"], "allowed": entry["allowed"]}
             for entry in agent.identity_gateway.audit_log[audit_start:]
             if entry["tool"] != "enforce_response_latency"]  # the deadline bookkeeping around every turn
+def _take_turn_with_trace(call_id: str, agent: HCMVoiceAgent, said: str, turn_number: int):
+    """Carry the opaque call correlation ID into the response-worker thread."""
+    with call_trace(call_id, turn=turn_number):
+        return agent.take_turn(said)
 
 
 def _clear_pending(state: CallState, future: Future) -> None:
@@ -278,9 +286,13 @@ def _clear_when_complete(state: CallState, future: Future) -> None:
 
 
 def _deliver_turn(call_id: str, state: CallState, agent: HCMVoiceAgent, turn, latency: float,
-                  sentiment_before: float, phase_before: str, tools: list[dict] | None = None) -> None:
+                  sentiment_before: float, phase_before: str, turn_number: int,
+                  tools: list[dict] | None = None) -> None:
     """Publish and speak a completed turn after the safety deadline has been met."""
     logger.info("Clara (%.1fs, %s): %s", latency, turn.action, turn.reply)
+    trace_entries = trace_store.summary(call_id)
+    if trace_entries:
+        live_feed.publish(call_id, "agent_trace", entries=trace_entries)
     if (turn.used_model and phase_before == "conversation") or turn.sentiment != sentiment_before:
         live_feed.publish(call_id, "sentiment", value=turn.sentiment, change=round(turn.sentiment - sentiment_before, 2))
     if turn.emergency:
@@ -541,6 +553,41 @@ def live_history():
     """Return locally retained, completed demo calls for the authenticated live view."""
     protect_live_view()
     return {"calls": transcript_store.recent()}
+
+
+@app.delete("/live/history")
+def delete_live_history():
+    """Delete only dashboard-selected completed local-demo transcripts."""
+    protect_live_view()
+    payload = request.get_json(silent=True) or {}
+    call_ids = payload.get("call_ids", [])
+    if not isinstance(call_ids, list) or len(call_ids) > 50:
+        abort(400)
+    deleted = transcript_store.delete(call_ids)
+    live_feed.remove_calls(set(deleted))
+    return {"deleted": deleted}
+
+
+@app.post("/live/events")
+def live_event_ingest():
+    """Accept dashboard events from the local CLI simulator.
+
+    This endpoint uses the same local-only/Basic Auth protection as the live view.
+    It is deliberately not used by ACS or exposed as a general event collector.
+    """
+    protect_live_view()
+    payload = request.get_json(silent=True) or {}
+    call_id = str(payload.get("call", "")).strip()
+    event_type = str(payload.get("type", "")).strip()
+    data = payload.get("data", {})
+    allowed = {"call_started", "patient", "thinking", "agent_trace", "sentiment", "identity",
+               "callback", "closing", "feedback", "clara", "call_ended", "emergency", "guardrail"}
+    if not call_id or event_type not in allowed or not isinstance(data, dict):
+        abort(400)
+    live_feed.publish(call_id, event_type, **data)
+    if event_type == "call_ended":
+        transcript_store.save(call_id, [event for event in live_feed.history() if event["call"] == call_id])
+    return "", 204
 
 
 def main() -> None:

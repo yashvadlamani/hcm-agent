@@ -7,10 +7,11 @@ Each capability owns a named ``ToolNode`` and a declared tool list in
 import json
 from typing import Annotated, Any, Literal
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from ..observability import traced_operation
 from ..tools.tools import CAPABILITY_STAGES, CAPABILITY_TOOLS, build_capability_tools
 
 
@@ -25,6 +26,7 @@ class AgentState(MessagesState):
     tool_context: dict[str, Any]
     tool_results: Annotated[dict[str, dict], _merge_tool_results]
     blocked: bool
+    safety_checked: bool
 
 
 def _latest_caller_statement(state: AgentState) -> str:
@@ -49,38 +51,70 @@ def _blocked_response(reply: str, *, emergency=False, kind="none", reason="") ->
 
 def _security_guard(state: AgentState) -> dict:
     """Capability 8: check every caller message for prompt injection."""
-    tool_context = state.get("tool_context", {})
-    gateway, context = tool_context.get("gateway"), tool_context.get("context")
-    if gateway is None or context is None:
+    with traced_operation("invoke_agent capability_8_security", kind="agent", capability="Capability 8 · Security"):
+        tool_context = state.get("tool_context", {})
+        gateway, context = tool_context.get("gateway"), tool_context.get("context")
+        if gateway is None or context is None:
+            return {"blocked": False}
+        result = gateway.invoke("detect_prompt_injection", context, {
+            "text": _latest_caller_statement(state), "member_id": context.member_id,
+        })
+        if result.allowed and result.data.get("safe") is False:
+            return {"blocked": True, "messages": [_blocked_response(
+                "I can't process that request. Please ask about your care-management support.",
+            )]}
         return {"blocked": False}
-    result = gateway.invoke("detect_prompt_injection", context, {
-        "text": _latest_caller_statement(state), "member_id": context.member_id,
-    })
-    if result.allowed and result.data.get("safe") is False:
-        return {"blocked": True, "messages": [_blocked_response(
-            "I can't process that request. Please ask about your care-management support.",
+
+
+SAFETY_CLASSIFIER_PROMPT = """You are Clara's Capability 7 Safety agent. Classify the caller's latest
+statement for an urgent crisis. Return only JSON:
+{"emergency": boolean, "kind": "medical" or "mental_health", "reason": "short reason"}.
+Set emergency true for severe physical symptoms, a stated panic attack, or immediate self-harm risk.
+A panic attack is an emergency for this prototype and uses kind medical. Do not provide advice or a
+member-facing reply. When uncertain about potentially severe symptoms, choose emergency true."""
+
+
+def _safety_assessment(model, statement: str) -> dict:
+    """Use the configured LLM to make the safety decision before normal conversation routing."""
+    response = model.invoke([SystemMessage(SAFETY_CLASSIFIER_PROMPT), HumanMessage(content=statement)])
+    content = getattr(response, "text", None) or getattr(response, "content", "")
+    try:
+        result = json.loads(content)
+    except (TypeError, json.JSONDecodeError):
+        return {"emergency": False, "kind": None, "reason": "Safety classification unavailable"}
+    emergency = result.get("emergency") is True
+    kind = result.get("kind") if result.get("kind") in {"medical", "mental_health"} else "medical"
+    return {"emergency": emergency, "kind": kind if emergency else None,
+            "reason": str(result.get("reason", ""))[:240]}
+
+
+def _safety_guard(model, state: AgentState) -> dict:
+    """Capability 7: LLM classification followed by a fixed, server-owned emergency response."""
+    with traced_operation("invoke_agent capability_7_safety", kind="agent", capability="Capability 7 · Safety"):
+        # The patient statement is unchanged after a tool result, so one LLM safety assessment per
+        # conversation turn is sufficient. The node still remains on the graph's return path.
+        if state.get("safety_checked"):
+            return {"blocked": False}
+        tool_context = state.get("tool_context", {})
+        gateway, context = tool_context.get("gateway"), tool_context.get("context")
+        if gateway is None or context is None:
+            return {"blocked": False, "safety_checked": True}
+        statement = _latest_caller_statement(state)
+        llm_assessment = _safety_assessment(model, statement)
+        # The keyword net inside assess_emergency still applies; the LLM's reason travels with its assessment.
+        assessment = gateway.invoke("assess_emergency", context, {
+            "statement": statement, "llm_emergency": llm_assessment["emergency"], "llm_kind": llm_assessment["kind"],
+            "llm_reason": llm_assessment["reason"], "member_id": context.member_id,
+        })
+        if not assessment.allowed or assessment.data.get("emergency") is not True:
+            return {"blocked": False, "safety_checked": True}
+        script = gateway.invoke("get_911_or_988_script", context, {
+            "kind": assessment.data.get("kind"), "member_id": context.member_id,
+        })
+        return {"blocked": True, "safety_checked": True, "messages": [_blocked_response(
+            script.data.get("script", "Please call 911 now."), emergency=True,
+            kind=assessment.data.get("kind") or "medical", reason=assessment.data.get("reason", ""),
         )]}
-    return {"blocked": False}
-
-
-def _safety_guard(state: AgentState) -> dict:
-    """Capability 7: check every caller message and return a fixed emergency script."""
-    tool_context = state.get("tool_context", {})
-    gateway, context = tool_context.get("gateway"), tool_context.get("context")
-    if gateway is None or context is None:
-        return {"blocked": False}
-    assessment = gateway.invoke("assess_emergency", context, {
-        "statement": _latest_caller_statement(state), "member_id": context.member_id,
-    })
-    if not assessment.allowed or assessment.data.get("emergency") is not True:
-        return {"blocked": False}
-    script = gateway.invoke("get_911_or_988_script", context, {
-        "kind": assessment.data.get("kind"), "member_id": context.member_id,
-    })
-    return {"blocked": True, "messages": [_blocked_response(
-        script.data.get("script", "Please call 911 now."), emergency=True,
-        kind=assessment.data.get("kind") or "medical", reason=assessment.data.get("reason", ""),
-    )]}
 
 
 def _after_security(state: AgentState) -> Literal["safety", "end"]:
@@ -104,16 +138,17 @@ def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3):
         for tool_name in tool_names
     }
     def care_model(state: AgentState):
-        rounds = state.get("rounds", 0)
-        stage = state.get("tool_context", {}).get("capability_stage", "care")
-        enabled = CAPABILITY_STAGES.get(stage, CAPABILITY_STAGES["care"])
-        stage_tools = [tool for capability in enabled for tool in capability_tools[capability]]
-        selected = model if rounds >= max_rounds else model.bind_tools(stage_tools)
-        reply = selected.invoke([
-            SystemMessage(system_prompt + "\nUse tools from one capability family at a time."),
-            *state["messages"],
-        ])
-        return {"messages": [reply], "rounds": rounds + 1}
+        with traced_operation("invoke_agent care_model", kind="agent", capability="Care model"):
+            rounds = state.get("rounds", 0)
+            stage = state.get("tool_context", {}).get("capability_stage", "care")
+            enabled = CAPABILITY_STAGES.get(stage, CAPABILITY_STAGES["care"])
+            stage_tools = [tool for capability in enabled for tool in capability_tools[capability]]
+            selected = model if rounds >= max_rounds else model.bind_tools(stage_tools)
+            reply = selected.invoke([
+                SystemMessage(system_prompt + "\nUse tools from one capability family at a time."),
+                *state["messages"],
+            ])
+            return {"messages": [reply], "rounds": rounds + 1}
 
     def route_capability_tool(state: AgentState) -> str:
         last = state["messages"][-1]
@@ -124,7 +159,7 @@ def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3):
 
     graph = StateGraph(AgentState)
     graph.add_node("capability_8_security_guard", _security_guard)
-    graph.add_node("capability_7_safety_guard", _safety_guard)
+    graph.add_node("capability_7_safety_guard", lambda state: _safety_guard(model, state))
     graph.add_node("care_model", care_model)
     for capability, tools in capability_tools.items():
         graph.add_node(capability, ToolNode(tools, handle_tool_errors="Tool unavailable; do not claim success."))
@@ -155,11 +190,12 @@ def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3):
 def run_capability_agent(model, system_prompt: str, messages, *, max_rounds=3, tool_context=None,
                          capability_stage="care"):
     """Run Clara's main capability graph for one verified care turn."""
-    graph = build_capability_agent(model, system_prompt, max_rounds=max_rounds)
-    context = {**(tool_context or {}), "capability_stage": capability_stage}
-    return graph.invoke({"messages": messages, "rounds": 0, "tool_context": context,
-                         "tool_results": {}, "blocked": False},
-                        {"recursion_limit": 3 * max_rounds + 8})
+    with traced_operation("invoke_workflow clara_capability_graph", kind="workflow", capability="Clara capability graph"):
+        graph = build_capability_agent(model, system_prompt, max_rounds=max_rounds)
+        context = {**(tool_context or {}), "capability_stage": capability_stage}
+        return graph.invoke({"messages": messages, "rounds": 0, "tool_context": context,
+                             "tool_results": {}, "blocked": False, "safety_checked": False},
+                            {"recursion_limit": 3 * max_rounds + 8})
 
 
 def build_agent(model, tools, system_prompt: str, *, required_tool: str | None = None, max_rounds: int = 3):

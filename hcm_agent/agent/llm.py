@@ -41,8 +41,10 @@ class LangChainLLM:
                           if capability_graph else
                           run_agent(self.model, list(tools), system_prompt, messages, tool_context=tool_context))
                 response = result["messages"][-1]
+                policy_answer = result.get("tool_results", {}).get("lookup_policy", {}).get("data", {})
             else:
                 response = self.model.invoke([SystemMessage(system_prompt), *messages])
+                policy_answer = {}
         except Exception as error:
             if "content_filter" not in str(error):
                 raise
@@ -51,7 +53,7 @@ class LangChainLLM:
         if response.response_metadata.get("finish_reason") == "content_filter":
             self.last_filter_categories = flagged_categories(str(response.response_metadata))
             return None
-        return response.text
+        return _preserve_exact_policy_answer(response.text, policy_answer)
 
     def call_and_review_tool(self, system_prompt: str, payload: dict, tool: dict, execute) -> bool:
         definition = tool["function"]
@@ -72,6 +74,21 @@ class LangChainLLM:
         review = json.loads(result["messages"][-1].text)
         return isinstance(review, dict) and review.get("verified") is True
 
+
+def _preserve_exact_policy_answer(response_text: str, policy_result: dict) -> str:
+    """Keep deterministic PDF table facts intact if the final model response altered them."""
+    answer = policy_result.get("answer") if isinstance(policy_result, dict) else None
+    if not isinstance(answer, str) or not answer.strip() or answer in response_text:
+        return response_text
+    try:
+        parsed = json.loads(response_text)
+    except (TypeError, json.JSONDecodeError):
+        return response_text
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("reply"), str):
+        return response_text
+    page = policy_result.get("answer_page")
+    parsed["reply"] = answer + (f" Source: page {page}." if page else "")
+    return json.dumps(parsed)
 
 class AzureOpenAILLM(LangChainLLM):
     def __init__(self, settings: Settings):

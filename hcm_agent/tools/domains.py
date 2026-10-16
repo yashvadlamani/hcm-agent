@@ -214,27 +214,45 @@ def lookup_policy(arguments: dict[str, Any]) -> dict[str, Any]:
         "grounded": bool(results),
         "results": results,
     }
-    # This high-risk table value is extracted from the retrieved passage, rather than left for
-    # the response model to copy numbers across a broken PDF table. It stays source-bound.
+    # High-risk table values are extracted from retrieved passages, rather than left for the
+    # response model to copy numbers across a broken PDF table. They stay source-bound.
     normalized_query = re.sub(r"[^a-z0-9]+", " ", query.casefold())
-    if "out of pocket" in normalized_query:
-        source = " ".join(str(item.get("content", "")) for item in results)
-        source = re.sub(r"-\s+", "-", source)
+    if "out of pocket" in normalized_query or "oop" in normalized_query:
+        exact = _extract_policy_table_answer(results, table="out_of_pocket")
+    elif "deductible" in normalized_query:
+        exact = _extract_policy_table_answer(results, table="deductible")
+    else:
+        exact = None
+    if exact:
+        response["answer"], response["answer_page"] = exact
+    return response
+
+
+def _extract_policy_table_answer(results: list[dict], *, table: str) -> tuple[str, int | None] | None:
+    """Return a verbatim-safe benefit fact only when its table was retrieved from the PDF."""
+    label = "out-of-pocket limit" if table == "out_of_pocket" else "overall deductible"
+    for item in results:
+        source = re.sub(r"-\s+", "-", str(item.get("content", "")))
+        source = re.sub(r"\s+", " ", source)
+        if label not in source.casefold():
+            continue
+        other_value = r"(\w+)" if table == "out_of_pocket" else r"(\$[\d,]+)"
         match = re.search(
-            r"Individual:\s*Participating\s*(\$[\d,]+);\s*Non-Participating\s*(\w+)\s*"
-            r"Family:\s*Participating\s*(\$[\d,]+);\s*Non-Participating\s*(\w+)",
+            r"Individual:\s*Participating\s*(\$[\d,]+);\s*Non-Participating\s*" + other_value + r"\s*"
+            r"Family:\s*Participating\s*(\$[\d,]+);\s*Non-Participating\s*" + other_value,
             source, re.IGNORECASE,
         )
-        if match:
-            individual, individual_non_participating, family, family_non_participating = match.groups()
-            response["answer"] = (
-                "For the 2025 plan summary: Individual: Participating " + individual +
-                "; Non-Participating " + individual_non_participating +
-                ". Family: Participating " + family + "; Non-Participating " +
-                family_non_participating + "."
-            )
-            response["answer_page"] = results[0].get("page") if results else None
-    return response
+        if not match:
+            continue
+        individual, individual_non_participating, family, family_non_participating = match.groups()
+        heading = "out-of-pocket maximum" if table == "out_of_pocket" else "overall deductible"
+        return (
+            f"For the 2025 plan summary, the {heading} is: Individual: Participating {individual}; "
+            f"Non-Participating {individual_non_participating}. Family: Participating {family}; "
+            f"Non-Participating {family_non_participating}.",
+            item.get("page"),
+        )
+    return None
 
 
 def provider_directory_search(arguments: dict[str, Any]) -> dict[str, Any]:
@@ -451,12 +469,16 @@ def operational_control(arguments: dict[str, Any]) -> dict[str, Any]:
 def assess_emergency(arguments: dict[str, Any]) -> dict[str, Any]:
     """Decide whether a statement is an emergency and which kind, for fixed-script routing, not diagnosis.
 
-    The keyword net decides first. Otherwise an assessment already made by the conversation model
-    (reported_kind, reported_reason) is accepted when it names a known kind."""
+    The keyword net decides first. Otherwise the Safety agent's LLM assessment (llm_emergency,
+    llm_kind), or an assessment the conversation model already made (reported_kind,
+    reported_reason), is accepted when it names a known kind."""
     kind, description = safety.classify(str(arguments.get("statement", "")))
     if kind:
         return {"emergency": True, "kind": kind, "reason": description.split(":", 1)[-1].strip(),
                 "source": "keyword"}
+    if arguments.get("llm_emergency") is True and arguments.get("llm_kind") in safety.KINDS:
+        return {"emergency": True, "kind": arguments["llm_kind"],
+                "reason": str(arguments.get("llm_reason") or "safety agent assessment")[:200], "source": "ai"}
     if arguments.get("reported_kind") in safety.KINDS:
         return {"emergency": True, "kind": arguments["reported_kind"],
                 "reason": str(arguments.get("reported_reason") or "described urgent symptoms")[:200],

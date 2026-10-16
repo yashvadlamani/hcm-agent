@@ -29,6 +29,11 @@ def said(reply):
     return AIMessage(content=json.dumps({"reply": reply, "sentiment": 0.5, "conversation_state": "ongoing"}))
 
 
+def safe():
+    """The Safety agent's model check that opens every conversation turn: no emergency."""
+    return AIMessage(content='{"emergency": false, "kind": null, "reason": ""}')
+
+
 def ask(*tools):
     """One model message asking for several tools at once: (name, query) pairs."""
     return AIMessage(content="", tool_calls=[{"name": name, "args": {"query": query}, "id": f"t{i}",
@@ -65,10 +70,10 @@ def test_one_call_exercises_the_safety_and_security_tools(monkeypatch, tmp_path,
     model = ScriptedChatModel(replies=[
         call("verify_full_name", provided_name="Maria", match_type="first_name"), approved(),
         call("verify_dob", provided_dob="1990-01-02"), approved(),
-        said("A closed pharmacy is a real obstacle. Has your daughter been able to help with refills?"),
-        call("lookup_policy", query="yearly diabetic eye exam"),
+        safe(), said("A closed pharmacy is a real obstacle. Has your daughter been able to help with refills?"),
+        safe(), call("lookup_policy", query="yearly diabetic eye exam"),
         said("Your plan document lists a yearly eye exam, but it is from last year, so please confirm it."),
-        ask(("authorize_tool_call", "create_urgent_alert"), ("apply_tool_allowlist", "delete_everything"),
+        safe(), ask(("authorize_tool_call", "create_urgent_alert"), ("apply_tool_allowlist", "delete_everything"),
             ("enforce_member_scope", "m2"), ("audit_event", "member asked what Clara can access"),
             ("apply_rate_limit", "status_checks"), ("apply_circuit_breaker", "pharmacy_api"),
             ("redact_for_logs", "member m1 called from 704-555-0199")),

@@ -75,6 +75,14 @@ def test_reply_comes_from_the_structured_model_output():
     assert llm.requests[0]["messages"][-1] == {"role": "user", "content": "I've been stressed about my insulin costs."}
 
 
+def test_prompt_keeps_a_patient_policy_question_on_its_active_topic():
+    prompt = get_system_prompt({"name": "Maria Lopez", "risk_drivers": ["Missed metformin refills"]})
+
+    assert "The patient's latest question, request, or concern is the active topic" in prompt
+    assert "policy/benefit topic" in prompt
+    assert "Do not append a care-management question" in prompt
+
+
 def test_plain_text_from_the_model_is_still_used_as_the_reply():
     agent, _ = new_agent("Sorry to hear that. How have you been sleeping?")
     turn = agent.take_turn("Not great.")
@@ -154,19 +162,11 @@ def test_mental_health_keyword_is_caught_instantly():
     assert "9 8 8" in turn.reply and llm.requests == []
 
 
-# ---- No promises ----
-
-@pytest.mark.parametrize("promise", [
-    "I'll connect you with your care manager right away.",
-    "Someone will call you back this afternoon.",
-    "Your care team will reach out to you tomorrow.",
-    "I'll send you a link to the form now.",
-])
-def test_promises_are_replaced_with_an_honest_reply(promise):
+def test_promise_wording_is_not_replaced_by_a_runtime_guardrail():
+    promise = "I'll connect you with your care manager right away."
     agent, _ = new_agent(turn_json(promise))
     turn = agent.take_turn("Can someone help me with my refills?")
-    assert turn.reply != promise and "note it for your care team" in turn.reply
-    assert turn.blocked == {"rule": "promise", "text": promise}
+    assert turn.reply == promise and turn.blocked is None
 
 
 def test_noting_something_for_the_care_team_is_allowed():
@@ -208,17 +208,26 @@ def test_feedback_answer_is_recorded(answer, wants_form):
     assert agent.end_call()["feedback_form_requested"] is wants_form
 
 
-def test_saying_goodbye_offers_the_feedback_form_without_the_model():
-    agent, llm = new_agent()
+def test_model_decides_that_a_goodbye_starts_the_feedback_flow():
+    agent, llm = new_agent(turn_json("I'm glad we could talk today.", state="patient_done"))
     turn = agent.take_turn("Okay, I have to go now, bye.")
-    assert turn.reply == FEEDBACK_QUESTION and turn.action == "listen" and llm.requests == []
+    assert turn.reply == f"I'm glad we could talk today. {FEEDBACK_QUESTION}"
+    assert turn.action == "listen" and len(llm.requests) == 1
     final = agent.take_turn("No.")
-    assert final.action == "hang_up" and final.end_reason == "Patient said goodbye"
+    assert final.action == "hang_up" and final.end_reason == "Patient's needs addressed"
     assert final.feedback_opt_in is False
 
 
+def test_closing_words_do_not_bypass_an_unresolved_question():
+    agent, llm = new_agent(turn_json("The deductible is $1,000 in this demo plan.", state="ongoing"))
+    turn = agent.take_turn("That is all fine, but can you tell me how much is my deductible?")
+    assert turn.action == "listen" and turn.phase == "conversation"
+    assert turn.reply == "The deductible is $1,000 in this demo plan."
+    assert llm.requests[-1]["messages"][-1]["content"].endswith("my deductible?")
+
+
 def test_emergency_during_the_closing_still_wins():
-    agent, _ = new_agent()
+    agent, _ = new_agent(turn_json("I'm glad we could talk today.", state="patient_done"))
     agent.take_turn("Bye.")
     turn = agent.take_turn("Actually wait, I'm having chest pain")
     assert turn.emergency is not None and turn.action == "hang_up"
@@ -417,15 +426,15 @@ def test_prompt_carries_the_reason_and_what_the_care_team_noticed():
 
 
 def test_goodbye_uses_the_first_name():
-    agent, _ = new_agent(name="John Doe")
+    agent, _ = new_agent(turn_json("I'm glad I could help.", state="patient_done"), name="John Doe")
     agent.take_turn("That's all, goodbye.")
     assert "Thank you for your time today, John." in agent.take_turn("No thanks.").reply
 
 
-def test_curly_apostrophes_cannot_slip_a_promise_past_the_guardrails():
+def test_curly_apostrophes_do_not_trigger_a_runtime_promise_guardrail():
     agent, _ = new_agent(turn_json("I\u2019ll make sure a nurse calls you today \u2014 don\u2019t worry."))
     turn = agent.take_turn("Can someone call me?")
-    assert turn.blocked["rule"] == "promise" and "note it for your care team" in turn.reply
+    assert turn.blocked is None
 
 
 def test_dashes_are_spoken_as_pauses():

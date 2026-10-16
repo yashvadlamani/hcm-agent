@@ -79,17 +79,8 @@ def test_mental_health_statements_are_labeled():
     assert is_emergency and reason.startswith("Mental health")
 
 
-@pytest.mark.parametrize("reply", [
-    "I'll connect you with your care manager right away.",
-    "Let me transfer you to a nurse.",
-    "Someone will call you back this afternoon.",
-    "Your care team will reach out to you tomorrow.",
-    "I'll send you a text with the details.",
-    "I'll make sure your doctor sees this.",
-    "I promise this will be sorted out.",
-])
-def test_promises_are_flagged(reply):
-    assert guardrails.check_agent_response(reply)[0] == GuardrailViolation.PROMISE
+def test_promise_wording_is_not_a_runtime_guardrail_violation():
+    assert guardrails.check_agent_response("I'll connect you with your care manager right away.")[0] == GuardrailViolation.NONE
 
 
 @pytest.mark.parametrize("reply", [

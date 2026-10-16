@@ -81,5 +81,20 @@ class TranscriptStore:
                                 "ended_at": ended_at, "events": events})
         return records
 
+    def delete(self, call_ids: list[str]) -> list[str]:
+        """Delete explicitly selected, completed local-demo transcripts and return those removed."""
+        selected = list(dict.fromkeys(call_id.strip() for call_id in call_ids
+                                      if isinstance(call_id, str) and call_id.strip()))[:MAX_TRANSCRIPTS]
+        if not selected or not self.path.is_file():
+            return []
+        placeholders = ", ".join("?" for _ in selected)
+        with self._lock:
+            with sqlite3.connect(self.path) as connection:
+                existing = {row[0] for row in connection.execute(
+                    f"SELECT call_id FROM call_transcripts WHERE call_id IN ({placeholders})", selected
+                ).fetchall()}
+                connection.execute(f"DELETE FROM call_transcripts WHERE call_id IN ({placeholders})", selected)
+        return [call_id for call_id in selected if call_id in existing]
+
 
 transcript_store = TranscriptStore()
