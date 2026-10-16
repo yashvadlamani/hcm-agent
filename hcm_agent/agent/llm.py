@@ -26,6 +26,9 @@ class LLM(Protocol):
 
 
 class LangChainLLM:
+    # Extra request options that make the provider return one JSON object (when it has such a mode).
+    json_options: dict = {}
+
     def __init__(self, model):
         self.model = model
         self.last_filter_categories: set[str] = set()
@@ -33,17 +36,20 @@ class LangChainLLM:
     def complete(self, system_prompt: str, messages: list, json_mode: bool = False, *, tools=(),
                  tool_context=None, capability_graph: bool = False) -> Optional[str]:
         self.last_filter_categories = set()
+        options = self.json_options if json_mode else {}
         if json_mode:
             system_prompt += "\nReturn the requested JSON object, without Markdown."
         try:
             if tools or capability_graph:
-                result = (run_capability_agent(self.model, system_prompt, messages, tool_context=tool_context)
+                result = (run_capability_agent(self.model, system_prompt, messages, tool_context=tool_context,
+                                               model_options=options)
                           if capability_graph else
-                          run_agent(self.model, list(tools), system_prompt, messages, tool_context=tool_context))
+                          run_agent(self.model, list(tools), system_prompt, messages, tool_context=tool_context,
+                                    model_options=options))
                 response = result["messages"][-1]
                 policy_answer = result.get("tool_results", {}).get("lookup_policy", {}).get("data", {})
             else:
-                response = self.model.invoke([SystemMessage(system_prompt), *messages])
+                response = self.model.invoke([SystemMessage(system_prompt), *messages], **options)
                 policy_answer = {}
         except Exception as error:
             if "content_filter" not in str(error):
@@ -70,7 +76,7 @@ class LangChainLLM:
                                        args_schema=schema)(execute_identity)
         result = run_agent(self.model, [identity_tool], system_prompt,
                            [{"role": "user", "content": json.dumps(payload)}],
-                           required_tool=identity_tool.name, max_rounds=1)
+                           required_tool=identity_tool.name, max_rounds=1, model_options=self.json_options)
         review = json.loads(result["messages"][-1].text)
         return isinstance(review, dict) and review.get("verified") is True
 
@@ -91,6 +97,12 @@ def _preserve_exact_policy_answer(response_text: str, policy_result: dict) -> st
     return json.dumps(parsed)
 
 class AzureOpenAILLM(LangChainLLM):
+    # Without JSON mode the model sometimes writes its reply in front of the JSON object, which Clara
+    # would read aloud, losing the emergency assessment, sentiment and conversation state. Sent as
+    # extra_body so it also applies to requests that offer tools: LangChain's own response_format
+    # option refuses those unless every tool is declared strict.
+    json_options = {"extra_body": {"response_format": {"type": "json_object"}}}
+
     def __init__(self, settings: Settings):
         # Azure's existing /openai/v1 endpoint uses LangChain's standard ChatOpenAI.
         options = {"reasoning_effort": settings.azure_openai_reasoning_effort} if (

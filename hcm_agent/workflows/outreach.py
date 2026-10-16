@@ -101,7 +101,8 @@ class CareOutreachGraph:
                           'Call authorize_outreach, then review its output. Return JSON {"allowed": true or false}. '
                           'Never approve a failed check. This authorizes a call; it does not dial.',
                           [{"role": "user", "content": "Evaluate this configured outreach request."}],
-                          required_tool="authorize_outreach", max_rounds=1)
+                          required_tool="authorize_outreach", max_rounds=1,
+                          model_options=getattr(llm, "json_options", None))
         review = json.loads(state["messages"][-1].text)
         if review.get("allowed") is not True:
             return OutreachResult(False, "blocked", "model did not approve preflight", audit_ids=outcome.audit_ids)

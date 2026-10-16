@@ -440,3 +440,9 @@ def test_curly_apostrophes_do_not_trigger_a_runtime_promise_guardrail():
 def test_dashes_are_spoken_as_pauses():
     agent, _ = new_agent(turn_json("Night shifts are hard \u2014 how do you fit refills in?"))
     assert agent.take_turn("I work nights.").reply == "Night shifts are hard, how do you fit refills in?"
+
+def test_a_reply_written_in_front_of_the_json_is_spoken_without_the_json():
+    raw = ('That sounds hard. What changed?\n{"emergency": {"detected": false, "type": "none", "reason": ""}, '
+           '"sentiment": 0.3, "conversation_state": "ongoing"}')
+    assert parse_model_output(raw) == {"reply": "That sounds hard. What changed?", "emergency": None,
+                                       "sentiment": 0.3, "state": "ongoing"}

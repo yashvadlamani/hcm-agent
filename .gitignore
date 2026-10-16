@@ -47,3 +47,6 @@ Thumbs.db
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Local search indexes, rebuilt with the clara-*-index commands
+data/vectorstore/

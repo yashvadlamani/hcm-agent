@@ -181,8 +181,9 @@ def on_speech(call_id: str, data: dict) -> None:
     state = calls.get(call_id)
     if state is None:
         return
-    speech = data.get("speechResult") or {}
-    said = (speech.get("speech") or "").strip()
+    # Not named "speech": that would hide the speech() function the latency filler below calls.
+    recognized = data.get("speechResult") or {}
+    said = (recognized.get("speech") or "").strip()
     with state.lock:
         if not said:
             return listen_again(call_id, state)
@@ -200,7 +201,7 @@ def on_speech(call_id: str, data: dict) -> None:
         else:  # the dashboard, the saved transcript and the log get a copy without direct identifiers
             recorded, redacted = shown_text(agent, said)
         logger.info("Patient: %s", recorded)
-        live_feed.publish(call_id, "patient", text=recorded, confidence=speech.get("confidence"), redacted=redacted)
+        live_feed.publish(call_id, "patient", text=recorded, confidence=recognized.get("confidence"), redacted=redacted)
         sentiment_before, phase_before = agent.sentiment, agent.phase
         live_feed.publish(call_id, "thinking")
         future = response_executor.submit(_take_turn_with_trace, call_id, agent, said, turn_number)

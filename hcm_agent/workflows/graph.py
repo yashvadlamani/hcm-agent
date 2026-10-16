@@ -74,9 +74,10 @@ A panic attack is an emergency for this prototype and uses kind medical. Do not 
 member-facing reply. When uncertain about potentially severe symptoms, choose emergency true."""
 
 
-def _safety_assessment(model, statement: str) -> dict:
+def _safety_assessment(model, statement: str, model_options: dict | None = None) -> dict:
     """Use the configured LLM to make the safety decision before normal conversation routing."""
-    response = model.invoke([SystemMessage(SAFETY_CLASSIFIER_PROMPT), HumanMessage(content=statement)])
+    response = model.invoke([SystemMessage(SAFETY_CLASSIFIER_PROMPT), HumanMessage(content=statement)],
+                            **(model_options or {}))
     content = getattr(response, "text", None) or getattr(response, "content", "")
     try:
         result = json.loads(content)
@@ -88,7 +89,7 @@ def _safety_assessment(model, statement: str) -> dict:
             "reason": str(result.get("reason", ""))[:240]}
 
 
-def _safety_guard(model, state: AgentState) -> dict:
+def _safety_guard(model, state: AgentState, model_options: dict | None = None) -> dict:
     """Capability 7: LLM classification followed by a fixed, server-owned emergency response."""
     with traced_operation("invoke_agent capability_7_safety", kind="agent", capability="Capability 7 · Safety"):
         # The patient statement is unchanged after a tool result, so one LLM safety assessment per
@@ -100,7 +101,7 @@ def _safety_guard(model, state: AgentState) -> dict:
         if gateway is None or context is None:
             return {"blocked": False, "safety_checked": True}
         statement = _latest_caller_statement(state)
-        llm_assessment = _safety_assessment(model, statement)
+        llm_assessment = _safety_assessment(model, statement, model_options)
         # The keyword net inside assess_emergency still applies; the LLM's reason travels with its assessment.
         assessment = gateway.invoke("assess_emergency", context, {
             "statement": statement, "llm_emergency": llm_assessment["emergency"], "llm_kind": llm_assessment["kind"],
@@ -125,8 +126,10 @@ def _after_safety(state: AgentState) -> Literal["model", "end"]:
     return "end" if state.get("blocked") else "model"
 
 
-def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3):
+def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3, model_options: dict | None = None):
     """Build the main conversation graph with one explicit tool node per capability.
+
+    model_options go to every model request, e.g. JSON mode (see LangChainLLM.json_options).
 
     The model chooses one capability family at a time. Its matching node executes
     the requested server-bound tool and then routes through the safety/security
@@ -147,7 +150,7 @@ def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3):
             reply = selected.invoke([
                 SystemMessage(system_prompt + "\nUse tools from one capability family at a time."),
                 *state["messages"],
-            ])
+            ], **(model_options or {}))
             return {"messages": [reply], "rounds": rounds + 1}
 
     def route_capability_tool(state: AgentState) -> str:
@@ -159,7 +162,7 @@ def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3):
 
     graph = StateGraph(AgentState)
     graph.add_node("capability_8_security_guard", _security_guard)
-    graph.add_node("capability_7_safety_guard", lambda state: _safety_guard(model, state))
+    graph.add_node("capability_7_safety_guard", lambda state: _safety_guard(model, state, model_options))
     graph.add_node("care_model", care_model)
     for capability, tools in capability_tools.items():
         graph.add_node(capability, ToolNode(tools, handle_tool_errors="Tool unavailable; do not claim success."))
@@ -188,17 +191,18 @@ def build_capability_agent(model, system_prompt: str, *, max_rounds: int = 3):
 
 
 def run_capability_agent(model, system_prompt: str, messages, *, max_rounds=3, tool_context=None,
-                         capability_stage="care"):
+                         capability_stage="care", model_options=None):
     """Run Clara's main capability graph for one verified care turn."""
     with traced_operation("invoke_workflow clara_capability_graph", kind="workflow", capability="Clara capability graph"):
-        graph = build_capability_agent(model, system_prompt, max_rounds=max_rounds)
+        graph = build_capability_agent(model, system_prompt, max_rounds=max_rounds, model_options=model_options)
         context = {**(tool_context or {}), "capability_stage": capability_stage}
         return graph.invoke({"messages": messages, "rounds": 0, "tool_context": context,
                              "tool_results": {}, "blocked": False, "safety_checked": False},
                             {"recursion_limit": 3 * max_rounds + 8})
 
 
-def build_agent(model, tools, system_prompt: str, *, required_tool: str | None = None, max_rounds: int = 3):
+def build_agent(model, tools, system_prompt: str, *, required_tool: str | None = None, max_rounds: int = 3,
+                model_options: dict | None = None):
     """Compile the narrow graph used by mandatory identity/pre-call workflow steps."""
     def respond(state: AgentState):
         rounds = state.get("rounds", 0)
@@ -207,7 +211,7 @@ def build_agent(model, tools, system_prompt: str, *, required_tool: str | None =
         else:
             choice = required_tool if rounds == 0 and required_tool else "auto"
             selected = model.bind_tools(tools, tool_choice=choice)
-        reply = selected.invoke([SystemMessage(system_prompt), *state["messages"]])
+        reply = selected.invoke([SystemMessage(system_prompt), *state["messages"]], **(model_options or {}))
         return {"messages": [reply], "rounds": rounds + 1}
 
     builder = StateGraph(AgentState)
@@ -220,8 +224,9 @@ def build_agent(model, tools, system_prompt: str, *, required_tool: str | None =
 
 
 def run_agent(model, tools, system_prompt: str, messages, *, required_tool=None, max_rounds=3,
-              tool_context=None):
+              tool_context=None, model_options=None):
     """Run a narrow graph for one mandatory, single-purpose workflow step."""
-    graph = build_agent(model, tools, system_prompt, required_tool=required_tool, max_rounds=max_rounds)
+    graph = build_agent(model, tools, system_prompt, required_tool=required_tool, max_rounds=max_rounds,
+                        model_options=model_options)
     return graph.invoke({"messages": messages, "rounds": 0, "tool_context": tool_context or {},
                          "tool_results": {}, "blocked": False}, {"recursion_limit": 2 * max_rounds + 4})

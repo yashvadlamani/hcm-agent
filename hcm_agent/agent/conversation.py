@@ -492,14 +492,17 @@ def parse_model_output(raw: str) -> dict:
     text = raw.strip()
     if text.startswith("```"):
         text = text.strip("`").removeprefix("json").strip()
+    start, end = text.find("{"), text.rfind("}")
     try:
         data = json.loads(text)
     except ValueError:
-        start, end = text.find("{"), text.rfind("}")
         try:
             data = json.loads(text[start:end + 1]) if 0 <= start < end else None
         except ValueError:
             data = None
+    if isinstance(data, dict) and not isinstance(data.get("reply"), str) and 0 < start < end:
+        # The model put its reply in front of the JSON object: speak the words, never the JSON.
+        data = {**data, "reply": text[:start].strip()}
     if not isinstance(data, dict) or not isinstance(data.get("reply"), str):
         return fallback
 

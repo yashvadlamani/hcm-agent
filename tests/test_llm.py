@@ -18,8 +18,9 @@ class FakeChatModel:
     def bind_tools(self, tools, **options):
         return self
 
-    def invoke(self, messages):
+    def invoke(self, messages, **options):
         self.requests.append(messages)
+        self.request_options = options
         return AIMessage(content=self.reply, response_metadata={"finish_reason": self.finish_reason})
 
 
@@ -47,6 +48,8 @@ def test_azure_openai_request_shape(azure_env):
     assert options["model"] == "clara-chat"
     assert options["base_url"] == "https://example.openai.azure.com/openai/v1/"
     assert options["reasoning_effort"] == "minimal"
+    # JSON mode keeps the structured turn (reply, emergency, sentiment, state) from being read aloud.
+    assert agent.llm.model.request_options == {"extra_body": {"response_format": {"type": "json_object"}}}
 
 
 def test_azure_reasoning_effort_can_be_disabled(azure_env, monkeypatch):
