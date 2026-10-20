@@ -4,6 +4,47 @@
   "tenant_id": "demo-health-plan",
   "members": [
     {
+      "member_id": "demo-yashwant-vadlamani",
+      "name": "Yashwant Vadlamani",
+      "date_of_birth": "1990-01-01",
+      "phone": "+17044305315",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/Chicago",
+        "calling_window": {"start_hour": 0, "end_hour": 24}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 100
+      },
+      "scenario": "Eligible: consented, callable, and high weekly frequency limit.",
+      "demo_call_context": {
+        "data_status": "fictional_demo_only",
+        "for": "diabetes check-in",
+        "risk_drivers": [
+          "HbA1c above 7.5% at last check",
+          "Missed metformin refills in the last 60 days",
+          "No endocrinologist visit in over 12 months",
+          "ER visit for low blood sugar in last 90 days",
+          "Overdue annual diabetic eye exam"
+        ],
+        "care_team_record": "Fictional demo note: diabetes-management outreach. Scenario context includes delayed refill access, no endocrinology visit in over 12 months, a low-blood-sugar ER visit in the last 90 days, and an overdue annual diabetic eye exam.",
+        "goals_on_file": [
+          "Discuss annual eye-exam access with the care team.",
+          "Ask the care team whether endocrinology follow-up is appropriate.",
+          "Raise prescription refill-access questions with the care team or prescriber."
+        ],
+        "follow_up_plan": [
+          "Ask whether the annual eye exam has been scheduled and note any barriers.",
+          "Ask whether the member wants to discuss endocrinology follow-up with the care team.",
+          "For medication or refill questions, give no medication advice; refer to the prescriber or pharmacist."
+        ]
+      }
+    },
+    {
       "member_id": "demo-himanshu-gupta",
       "name": "Himanshu Gupta",
       "date_of_birth": "1991-07-28",
