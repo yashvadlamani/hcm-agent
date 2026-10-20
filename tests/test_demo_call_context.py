@@ -30,7 +30,7 @@ def test_each_demo_member_has_distinct_fictional_scenario():
     members = load_demo_members()
     contexts = [demo_call_context_for_name(member["name"]) for member in members]
 
-    assert len(contexts) == 5
+    assert len(contexts) == 6
     assert all(context["data_status"] == "fictional_demo_only" for context in contexts)
     assert len({context["for"] for context in contexts}) == len(contexts)
     assert all(1 <= len(context["risk_drivers"]) <= 5 for context in contexts)
