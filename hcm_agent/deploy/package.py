@@ -15,6 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "hcm_agent"
 FUNCTION = PACKAGE / "azure_functions"
+PLAYBOOKS = ROOT / "data" / "playbooks"
+POLICIES = ROOT / "data" / "policies"
 # Parts of the repo's hcm_agent/ folder that are not application code.
 NOT_APP_CODE = {"azure_functions", "deploy", "__pycache__"}
 
@@ -26,16 +28,33 @@ def app_files() -> list[tuple[Path, str]]:
             if path.is_file() and not NOT_APP_CODE.intersection(path.relative_to(PACKAGE).parts)]
 
 
+def playbook_files() -> list[tuple[Path, str]]:
+    """Include the local RAG corpus at the same project-relative path used at runtime."""
+    return [(path, path.relative_to(ROOT).as_posix()) for path in sorted(PLAYBOOKS.rglob("*")) if path.is_file()]
+
+
+def care_data_files() -> list[tuple[Path, str]]:
+    """Include policy metadata and provider-directory snapshot; empty sources stay inactive."""
+    paths = [ROOT / "data" / "provider_directory.json"]
+    paths.extend(path for path in POLICIES.rglob("*") if path.is_file())
+    return [(path, path.relative_to(ROOT).as_posix()) for path in sorted(paths)]
+
+
 def server_files() -> list[tuple[Path, str]]:
     # requirements.txt at the root tells App Service what to install; gunicorn imports hcm_agent.
-    return [(ROOT / "requirements.txt", "requirements.txt")] + app_files()
+    return (
+        [(ROOT / "requirements.txt", "requirements.txt"),
+         (ROOT / "data" / "demo_members.json", "data/demo_members.json")]
+        + app_files() + playbook_files() + care_data_files()
+    )
 
 
 def function_files() -> list[tuple[Path, str]]:
     # function_app.py, host.json and requirements.txt must sit at the root of a Function package.
     return [(path, path.relative_to(FUNCTION).as_posix())
             for path in sorted(FUNCTION.rglob("*"))
-            if path.is_file() and "__pycache__" not in path.parts] + app_files()
+            if path.is_file() and "__pycache__" not in path.parts] + app_files() + [
+                (ROOT / "data" / "demo_members.json", "data/demo_members.json")] + playbook_files() + care_data_files()
 
 
 def build(files: list[tuple[Path, str]], target: str) -> None:

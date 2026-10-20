@@ -2,3 +2,7 @@ azure-functions
 azure-storage-blob
 azure-communication-callautomation
 python-dotenv
+langchain>=1,<2
+langgraph>=1,<2
+langchain-openai>=1,<2
+langchain-anthropic>=1,<2

@@ -4,13 +4,14 @@ import re
 from enum import Enum
 from typing import Tuple
 
+from ..tools import safety
+
 
 class GuardrailViolation(Enum):
     """Types of guardrail violations."""
     MEDICAL_DIAGNOSIS = "medical_diagnosis"
     MEDICAL_ADVICE = "medical_advice"
     PRESCRIPTION_CHANGE = "prescription_change"
-    PROMISE = "promise"
     EMERGENCY_SYMPTOM = "emergency_symptom"
     NONE = "none"
 
@@ -50,46 +51,31 @@ class VoiceAgentGuardrails:
                r"eliminat(e|ing)|add(ing)?|follow(ing)?)\b"
     PRESCRIPTION_PATTERNS = [COMMANDING + CHANGE + r".{0,40}?" + MEDICINE,
                              RECOMMENDING + CHANGING + r".{0,40}?" + MEDICINE]
+    # Also block softer medication directives, including "keep taking as prescribed". This is
+    # deliberately narrower than any mention of medication so supportive questions remain safe.
+    MEDICATION_DIRECTIVE = (r"(?:take|use|start|stop|continue|keep|skip|change|adjust|increase|decrease|"
+                            r"reduce|stretch|split|double|halve|switch|follow)(?:\s+\w+){0,3}\s+" + MEDICINE)
+    MEDICATION_ADVICE_PATTERNS = [
+        r"\b(?:you should|you need to|you must|you have to|you can|you could|you may want to|"
+        r"i recommend|i suggest|i advise|please|don't|do not|never|always|it is important to|"
+        r"it's important to|it is best to|it's best to)\s+" + MEDICATION_DIRECTIVE,
+        r"\b(?:but|however)\s+(?:please\s+)?" + MEDICATION_DIRECTIVE,
+        r"\b(?:keep|continue)\s+(?:taking|using)\b.{0,50}?" + MEDICINE,
+    ]
     ADVICE_PATTERNS = [COMMANDING + ADVISE + r".{0,40}?" + ADVICE_TOPIC,
                        RECOMMENDING + ADVISING + r".{0,40}?" + ADVICE_TOPIC]
     # Declining to advise, or pointing back to what the doctor prescribed, is the safe answer.
     NOT_ADVICE = (r"\b(i can't|i cannot|i can not|i'm not able to|i am not able to|i'm unable to|i won't|"
                   r"not something i can|as prescribed|as directed|as your doctor)\b")
 
-    # Promises Clara can't keep: she can't connect, transfer, schedule, send or arrange anything,
-    # or commit anyone else to act. "I'll note that for your care team" is fine and isn't matched.
-    PROMISE_PATTERNS = [
-        r"\b(i'll|i will|i'm going to|let me|we'll|we will)\s+(\w+\s+){0,3}?"
-        r"(connect|transfer|put you through|schedule|book|arrange|send|text|email|call you|"
-        r"reach out|contact|get you|make sure|have someone)\b",
-        r"\b(someone|somebody|a nurse|a doctor|your doctor|a care manager|your care manager|"
-        r"the care team|your care team|they)\s+will\s+(\w+\s+){0,2}?"
-        r"(call|contact|reach out|follow up|get back|be in touch|text|email|visit)\b",
-        r"\b(right away|right now|immediately|as soon as possible|within the hour|today)\b.{0,40}"
-        r"\b(connect|transfer|call you|contact you|reach out|follow up)\b",
-        r"\b(connect|transfer|call you|contact you|reach out|follow up)\b.{0,40}"
-        r"\b(right away|right now|immediately|as soon as possible|within the hour)\b",
-        r"\bi (promise|guarantee)\b",
-    ]
-
-    # Emergency keywords: an instant safety net that runs before the model's own clinical assessment.
-    EMERGENCY_KEYWORDS = [
-        "chest pain", "difficulty breathing", "shortness of breath",
-        "severe headache", "sudden vision loss", "loss of consciousness",
-        "severe bleeding", "unbearable pain",
-        "call 911", "go to emergency", "go to hospital immediately"
-    ]
-    MENTAL_HEALTH_KEYWORDS = [
-        "suicidal", "suicide", "kill myself", "end my life", "ending my life", "want to die", "hurt myself",
-        "self harm", "self-harm", "don't see the point of going on", "don't see the point in going on",
-        "no reason to live", "not worth living", "better off dead", "better off without me", "can't go on",
-    ]
+    # The emergency keyword net lives in tools/safety.py, shared with the safety tools.
+    EMERGENCY_KEYWORDS = safety.EMERGENCY_KEYWORDS
+    MENTAL_HEALTH_KEYWORDS = safety.MENTAL_HEALTH_KEYWORDS
 
     def __init__(self):
         self.diagnosis_regex = [re.compile(p, re.IGNORECASE) for p in self.DIAGNOSIS_PATTERNS]
         self.advice_regex = [re.compile(p, re.IGNORECASE) for p in self.ADVICE_PATTERNS]
         self.prescription_regex = [re.compile(p, re.IGNORECASE) for p in self.PRESCRIPTION_PATTERNS]
-        self.promise_regex = [re.compile(p, re.IGNORECASE) for p in self.PROMISE_PATTERNS]
         self.not_advice_regex = re.compile(self.NOT_ADVICE, re.IGNORECASE)
 
     def check_agent_response(self, response: str) -> Tuple[GuardrailViolation, str]:
@@ -107,17 +93,21 @@ class VoiceAgentGuardrails:
             if pattern.search(response):
                 return GuardrailViolation.MEDICAL_DIAGNOSIS, f"Diagnosis pattern detected: {response[:100]}"
 
-        # Check for promises Clara can't keep
-        for pattern in self.promise_regex:
-            if pattern.search(response):
-                return GuardrailViolation.PROMISE, f"Promise pattern: {response[:100]}"
-
-        # Check each sentence for medication changes, then for other medical advice
-        sentences = [s for s in re.split(r"(?<=[.!?;])\s+", response) if not self.not_advice_regex.search(s)]
+        # Medication advice is prohibited even if the same sentence starts with a refusal.
+        # Check its specific patterns before the generic "not advice" exemption.
+        sentences = re.split(r"(?<=[.!?;])\s+", response)
         for sentence in sentences:
+            if any(re.search(pattern, sentence, re.IGNORECASE) for pattern in self.MEDICATION_ADVICE_PATTERNS):
+                return GuardrailViolation.PRESCRIPTION_CHANGE, f"Medication advice pattern: {response[:100]}"
+        # Check each sentence for medication changes, then for other medical advice.
+        for sentence in sentences:
+            if self.not_advice_regex.search(sentence):
+                continue
             if any(pattern.search(sentence) for pattern in self.prescription_regex):
                 return GuardrailViolation.PRESCRIPTION_CHANGE, f"Prescription change pattern: {response[:100]}"
         for sentence in sentences:
+            if self.not_advice_regex.search(sentence):
+                continue
             if any(pattern.search(sentence) for pattern in self.advice_regex):
                 return GuardrailViolation.MEDICAL_ADVICE, f"Medical advice pattern: {response[:100]}"
 
@@ -128,21 +118,5 @@ class VoiceAgentGuardrails:
         Check if patient statement indicates emergency or distress.
         Returns: (is_emergency, description)
         """
-        statement_lower = statement.lower()
-
-        for keyword in self.MENTAL_HEALTH_KEYWORDS:
-            if keyword in statement_lower:
-                return True, f"Mental health crisis: {keyword}"
-
-        for keyword in self.EMERGENCY_KEYWORDS:
-            if keyword in statement_lower:
-                return True, f"Emergency detected: {keyword}"
-
-        # Severe distress indicators. ("help me" was removed: "can you help me with my refills" is an
-        # ordinary request. The model's clinical assessment judges distress in context instead.)
-        distress_keywords = ["can't breathe", "cannot breathe", "i'm dying", "severe pain"]
-        for keyword in distress_keywords:
-            if keyword in statement_lower:
-                return True, f"Patient distress: {keyword}"
-
-        return False, ""
+        kind, description = safety.classify(statement)
+        return kind is not None, description

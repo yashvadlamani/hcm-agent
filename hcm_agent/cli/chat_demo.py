@@ -7,42 +7,105 @@ Usage:
 """
 
 import argparse
+import base64
+import json
 import logging
+import os
+import time
+import uuid
 from typing import Any, Dict
+from urllib import error, request
 
 from ..agent import HCMVoiceAgent
+from ..agent.conversation import DOB_QUESTION
+from ..observability import call_trace, trace_store
+from ..workflows.member_data import demo_call_context_for_name, identity_record_for_name
 
 # ---- A simulated phone call in the terminal ----
+
+class LiveDashboard:
+    """Best-effort bridge from a separate CLI process to a local Clara server."""
+
+    def __init__(self, base_url: str | None, password: str = ""):
+        self.base_url = (base_url or "").rstrip("/")
+        self.password = password
+        self.call_id = f"cli-{uuid.uuid4().hex}"
+        self.enabled = bool(self.base_url)
+
+    def publish(self, event_type: str, **data: Any) -> None:
+        if not self.enabled:
+            return
+        body = json.dumps({"call": self.call_id, "type": event_type, "data": data}).encode()
+        headers = {"Content-Type": "application/json"}
+        if self.password:
+            token = base64.b64encode(f"clara:{self.password}".encode()).decode()
+            headers["Authorization"] = f"Basic {token}"
+        try:
+            request.urlopen(request.Request(f"{self.base_url}/live/events", body, headers), timeout=2).close()
+        except (error.URLError, TimeoutError, OSError) as exc:
+            self.enabled = False
+            print(f"Live dashboard unavailable ({exc}); continuing in the terminal.")
+
 
 class MockVoiceInterface:
     """Simulates voice call interface for testing."""
 
-    def __init__(self, agent):
+    def __init__(self, agent, dashboard: LiveDashboard | None = None):
         self.agent = agent
+        self.dashboard = dashboard or LiveDashboard(None)
+        self.turn_number = 0
 
     def start_call(self, patient_context: Dict[str, Any]):
         """Start a simulated voice call."""
-        self.agent.initialize_call(patient_context)
+        record = identity_record_for_name(patient_context.get("name", ""))
+        self.agent.initialize_call(patient_context, identity_record=record)
+        if not record:
+            print("No unique member record found. Add the member to MEMBER_DATA_PATH before testing verification.")
         print("\n" + "="*70)
         print("📞 VOICE CALL STARTED")
         print(f"Patient: {patient_context.get('name', 'Unknown')}")
         print(f"Calling for: {patient_context.get('call_reason') or 'diabetes management'}")
         print(f"Risk Drivers: {', '.join(patient_context.get('risk_drivers', []))}")
         print("="*70 + "\n")
-        print(f"🤖 Agent: {self.agent.start_call()}\n")
+        greeting = self.agent.start_call()
+        print(f"🤖 Agent: {greeting}\n")
+        self.dashboard.publish("call_started", name=patient_context.get("name", "Unknown caller"),
+                               drivers=patient_context.get("risk_drivers", []),
+                               reason=patient_context.get("call_reason", ""), sentiment=self.agent.sentiment)
+        self.dashboard.publish("clara", text=greeting, kind="greeting")
 
     def send_message(self, message: str):
         """Send patient message and get agent response."""
-        print(f"🗣️  Patient: {message}")
-        turn = self.agent.take_turn(message)
+        recorded = "[Date of birth provided]" if self.agent.phase == "verify_dob" else message
+        print(f"🗣️  Patient: {recorded}")
+        self.turn_number += 1
+        self.dashboard.publish("patient", text=recorded, confidence=None)
+        self.dashboard.publish("thinking")
+        audit_start = len(self.agent.identity_gateway.audit_log)
+        started = time.monotonic()
+        with call_trace(self.dashboard.call_id, turn=self.turn_number):
+            turn = self.agent.take_turn(message)
+        latency = round(time.monotonic() - started, 2)
+        self.dashboard.publish("agent_trace", entries=trace_store.summary(self.dashboard.call_id))
+        if turn.identity:
+            self.dashboard.publish("identity", status=turn.identity, spoke_with=turn.spoke_with)
+        if turn.used_model:
+            self.dashboard.publish("sentiment", value=turn.sentiment, change=0)
+        self.dashboard.publish("clara", text=turn.reply, kind="reply", latency=latency)
         print(f"🤖 Agent: {turn.reply}")
         notes = [f"sentiment {turn.sentiment:.2f}"]
+        identity_tools = [event["tool"] for event in self.agent.identity_gateway.audit_log[audit_start:]
+                          if event["tool"] in {"verify_full_name", "verify_dob"}]
+        if identity_tools:
+            notes.append("GPT → " + ", ".join(identity_tools) + " → GPT review")
         if turn.emergency:
             notes.append(f"{turn.emergency.kind} emergency ({turn.emergency.source}): {turn.emergency.reason}")
         if turn.blocked:
             notes.append(f"guardrail replaced a reply ({turn.blocked['rule']})")
         if turn.feedback_opt_in is not None:
             notes.append("feedback form " + ("requested" if turn.feedback_opt_in else "declined"))
+        if turn.developer_error:
+            notes.append(f"identity service error: {turn.developer_error}")
         if turn.action == "hang_up":
             notes.append(f"call ended: {turn.end_reason}")
         print(f"   [{' · '.join(notes)}]\n")
@@ -64,28 +127,46 @@ class MockVoiceInterface:
         print(self.agent.get_conversation_transcript())
         print("="*70 + "\n")
 
+        self.dashboard.publish("call_ended", reason=self.agent.end_reason or "CLI chat ended")
         return summary
 
 
-def run_interactive_call(agent):
+def run_interactive_call(agent, member_name: str | None = None, *, live_url: str | None = None,
+                         live_password: str = ""):
     """Run an interactive voice call session."""
     print("\n🏥 HCM VOICE AGENT - INTERACTIVE TEST\n")
 
     # Get patient info
-    patient_name = input("Patient name: ").strip() or "John Smith"
-    call_reason = input("Reason for the call [diabetes management]: ").strip()
-    risk_drivers = input("Risk drivers (comma-separated): ").strip()
-    risk_drivers = ([d.strip() for d in risk_drivers.split(",")] if risk_drivers
-                    else ["HbA1c > 7.5%", "Blood pressure elevated"])
+    patient_name = member_name or input("Patient name (full name or unique first name): ").strip()
+    selected_record = identity_record_for_name(patient_name)
+    if selected_record:
+        patient_name = selected_record["name"]
+    elif patient_name:
+        print("No unique demo member matched; identity verification will fail closed "
+              "unless a matching record is configured.")
+    demo_context = demo_call_context_for_name(patient_name)
+    default_reason = demo_context.get("for", "diabetes management")
+    default_drivers = demo_context.get("risk_drivers", [])
+    if demo_context:
+        print("Using a fictional demo care scenario for this local interactive simulation.")
+    call_reason = input(f"Reason for the call [{default_reason}]: ").strip() or default_reason
+    risk_input = input('Risk drivers (comma-separated; Enter = scenario defaults, "none" = no drivers): ').strip()
+    if risk_input.lower() == "none":
+        risk_drivers = []
+    elif risk_input:
+        risk_drivers = [driver.strip() for driver in risk_input.split(",") if driver.strip()]
+    else:
+        risk_drivers = default_drivers
 
     patient_context = {
         "name": patient_name,
         "call_reason": call_reason,
-        "risk_drivers": risk_drivers
+        "risk_drivers": risk_drivers,
+        "local_demo_context": bool(demo_context),
     }
 
     # Start call
-    voice = MockVoiceInterface(agent)
+    voice = MockVoiceInterface(agent, LiveDashboard(live_url, live_password))
     voice.start_call(patient_context)
 
     # Interactive conversation
@@ -103,9 +184,11 @@ def run_interactive_call(agent):
     return voice.end_call()
 
 
-DEMO_SCRIPT = [  # follows Clara's opening, "May I speak with Sarah Martinez, please?"
-    ("patient", "Yes, this is Sarah."),
-    ("agent", "Thanks, Sarah. I'm calling to check in on how you're doing with your diabetes management. "
+DEMO_SCRIPT = [  # Illustrative transcript only; demo mode does not execute tools or call a model.
+    ("patient", "Sarah Martinez"),
+    ("agent", DOB_QUESTION),
+    ("patient", "[Date of birth provided]"),
+    ("agent", "Thank you for verifying your identity. I'm calling to check in on your diabetes management. "
               "How have you been feeling lately?"),
     ("patient", "Well, I've been pretty stressed lately. My sugars have been all over the place."),
     ("agent", "I'm sorry, that sounds hard. Have you been able to take your medications as prescribed?"),
@@ -172,6 +255,10 @@ def guardrail_check() -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chat with Clara in the terminal.")
     parser.add_argument("mode", nargs="?", choices=["interactive", "guardrails", "demo"], default="interactive")
+    parser.add_argument("--member", help="select a demo member by unique first name or full name (interactive mode)")
+    parser.add_argument("--live-url", help="local Clara server URL; mirrors this CLI chat to its /live dashboard")
+    parser.add_argument("--live-password", default=os.getenv("LIVE_VIEW_PASSWORD", ""),
+                        help="LIVE_VIEW_PASSWORD when the dashboard is protected")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
 
@@ -180,7 +267,8 @@ def main() -> None:
     elif args.mode == "guardrails":
         guardrail_check()
     else:
-        run_interactive_call(HCMVoiceAgent())
+        run_interactive_call(HCMVoiceAgent(), member_name=args.member, live_url=args.live_url,
+                             live_password=args.live_password)
 
 
 if __name__ == "__main__":

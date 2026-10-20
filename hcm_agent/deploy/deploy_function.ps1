@@ -33,6 +33,10 @@ $functionName = "call_request"
 
 $settings = Read-DotEnv (Join-Path $root ".env")
 $required = "ACS_CONNECTION_STRING", "ACS_PHONE_NUMBER", "ACS_COGNITIVE_SERVICES_ENDPOINT", "PHONE_WEBHOOK_KEY", "ALLOWED_CALL_NUMBERS"
+$provider = if ($settings["LLM_PROVIDER"]) { $settings["LLM_PROVIDER"] } else { "anthropic" }
+$required += if ($provider -eq "azure_openai") {
+    "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT"
+} else { "ANTHROPIC_API_KEY" }
 $missing = @($required | Where-Object { -not $settings[$_] })
 if ($missing.Count -gt 0) { throw "Set these in .env before deploying: $($missing -join ', ')" }
 
@@ -65,10 +69,13 @@ $vaultId = Initialize-Vault $Vault $ResourceGroup
 Grant-AppVaultAccess functionapp $ResourceGroup $FunctionApp $vaultId
 $secrets = @{ CallRequestsStorage = $connection }
 $appSettings = @(@{ name = "CLARA_BASE_URL"; value = $claraUrl; slotSetting = $false })
-foreach ($name in $required + "MAX_CALLS_PER_HOUR") {
+foreach ($name in $required + @("MAX_CALLS_PER_HOUR", "LLM_PROVIDER", "ANTHROPIC_MODEL")) {
     if (-not $settings[$name]) { continue }
     if ($SecretSettings -contains $name) { $secrets[$name] = $settings[$name] }
     else { $appSettings += @{ name = $name; value = $settings[$name]; slotSetting = $false } }
+}
+if ($settings.ContainsKey("AZURE_OPENAI_REASONING_EFFORT")) {
+    $appSettings += @{ name = "AZURE_OPENAI_REASONING_EFFORT"; value = $settings["AZURE_OPENAI_REASONING_EFFORT"]; slotSetting = $false }
 }
 $appSettings += Sync-VaultSecrets $Vault $secrets
 Write-AppSettings functionapp $ResourceGroup $FunctionApp $appSettings

@@ -26,7 +26,7 @@ from azure.storage.blob import BlobClient, BlobServiceClient, ContainerClient
 
 from hcm_agent import config
 from hcm_agent.telephony.call_requests import InvalidCallRequest, parse_call_request
-from hcm_agent.telephony.outbound import CallNotAllowed, place_call
+from hcm_agent.telephony.outbound import CallNotAllowed, place_member_call
 
 app = func.FunctionApp()
 
@@ -96,7 +96,7 @@ def _handle(raw: bytes, container: ContainerClient) -> tuple[str, dict]:
         return "failed", {"error": f"rate limit: {settings.max_calls_per_hour} calls per hour"}
 
     try:
-        sid = place_call(settings, settings.clara_base_url, request.to, request.name, request.risk_drivers,
+        sid = place_member_call(settings, settings.clara_base_url, request.to, request.name, request.risk_drivers,
                          reason=request.reason)
     except CallNotAllowed as e:
         return "failed", {"error": str(e)}

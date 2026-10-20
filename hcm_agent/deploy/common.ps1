@@ -14,14 +14,26 @@ $SecretSettings = @(
 # Settings from earlier versions (Twilio) that the deploy scripts remove from the apps.
 $RetiredSettings = @("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_PHONE_NUMBER")
 
-# Call the Azure CLI's Python directly: az.cmd goes through cmd.exe, which breaks on characters
-# like '&' in arguments.
-$script:azPython = Join-Path (Split-Path (Get-Command az).Source) "..\python.exe"
+# On Windows, call Azure CLI's bundled Python directly: az.cmd goes through cmd.exe, which can
+# break on characters like '&' in arguments. On macOS/Linux, Azure CLI is an executable/script;
+# the Windows-only python.exe path does not exist there.
+$script:azCommand = Get-Command az -ErrorAction Stop
+$script:azPython = $null
+if ($env:OS -eq "Windows_NT") {
+    $script:azPython = Join-Path (Split-Path $script:azCommand.Source) "..\python.exe"
+}
+
+function Invoke-AzCli([array]$Arguments) {
+    if ($script:azPython) {
+        return & $script:azPython -IBm azure.cli @Arguments --only-show-errors
+    }
+    return & $script:azCommand.Source @Arguments --only-show-errors
+}
 
 function Invoke-Az {
     # Azure occasionally reports a just-changed resource as missing for a few seconds, so retry.
     for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $out = & $script:azPython -IBm azure.cli @args --only-show-errors
+        $out = Invoke-AzCli $args
         if ($LASTEXITCODE -eq 0) { return $out }
         if ($attempt -lt 3) { Write-Host "  retrying in 15s..."; Start-Sleep -Seconds 15 }
     }
@@ -35,7 +47,7 @@ function Get-AzOptional {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        $out = & $script:azPython -IBm azure.cli @args --only-show-errors 2>$null
+        $out = Invoke-AzCli $args 2>$null
         if ($LASTEXITCODE -eq 0) { return $out }
     } catch {
     } finally {

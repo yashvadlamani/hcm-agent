@@ -1,0 +1,212 @@
+{
+  "dataset": "clara-demo-members",
+  "classification": "synthetic demo data with one user-provided profile; all care scenarios below are fictional and are not verified member facts",
+  "tenant_id": "demo-health-plan",
+  "members": [
+    {
+      "member_id": "demo-himanshu-gupta",
+      "name": "Himanshu Gupta",
+      "date_of_birth": "1991-07-28",
+      "phone": "+19794223275",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/Chicago",
+        "calling_window": {"start_hour": 0, "end_hour": 24}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 100
+      },
+      "scenario": "Eligible: consented, callable, and high weekly frequency limit.",
+      "demo_call_context": {
+        "data_status": "fictional_demo_only",
+        "for": "diabetes management",
+        "risk_drivers": [
+          "HbA1c above 7.5% at last check",
+          "Missed metformin refills in the last 60 days",
+          "No endocrinologist visit in over 12 months",
+          "ER visit for low blood sugar in last 90 days",
+          "Overdue annual diabetic eye exam"
+        ],
+        "care_team_record": "Fictional demo note: diabetes-management outreach. Scenario context includes delayed refill access, no endocrinology visit in over 12 months, a low-blood-sugar ER visit in the last 90 days, and an overdue annual diabetic eye exam.",
+        "goals_on_file": [
+          "Discuss annual eye-exam access with the care team.",
+          "Ask the care team whether endocrinology follow-up is appropriate.",
+          "Raise prescription refill-access questions with the care team or prescriber."
+        ],
+        "follow_up_plan": [
+          "Ask whether the annual eye exam has been scheduled and note any barriers.",
+          "Ask whether the member wants to discuss endocrinology follow-up with the care team.",
+          "For medication or refill questions, give no medication advice; refer to the prescriber or pharmacist."
+        ]
+      }
+    },
+    {
+      "member_id": "demo-elena-ramirez",
+      "name": "Elena Ramirez",
+      "date_of_birth": "1987-06-14",
+      "phone": "+15555550102",
+      "communication": {
+        "language": "es-US",
+        "local_timezone": "America/Los_Angeles",
+        "calling_window": {"start_hour": 9, "end_hour": 18}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": true,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Blocked: the member has an active do-not-call preference.",
+      "demo_call_context": {
+        "data_status": "fictional_demo_only",
+        "for": "care gaps",
+        "risk_drivers": [
+          "Annual diabetes follow-up is overdue in this fictional scenario",
+          "Diabetic eye screening is not documented this year",
+          "No diabetes self-management education program is recorded",
+          "Transportation may be affecting routine appointment access",
+          "Routine primary-care follow-up has not been documented"
+        ],
+        "care_team_record": "Fictional demo note: routine diabetes follow-up and eye screening are overdue in the scenario; diabetes education is not recorded, and transportation may affect access to routine care.",
+        "goals_on_file": [
+          "Discuss routine diabetes follow-up with the care team.",
+          "Explore available diabetes self-management education resources.",
+          "Discuss transportation support for routine appointments."
+        ],
+        "follow_up_plan": [
+          "Ask whether routine follow-up has been arranged and note any barriers.",
+          "Ask whether the member wants information about education resources.",
+          "Ask whether transportation makes routine care difficult and offer to note the concern."
+        ]
+      }
+    },
+    {
+      "member_id": "demo-marco-lee",
+      "name": "Marco Lee",
+      "date_of_birth": "1975-11-03",
+      "phone": "+15555550103",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/New_York",
+        "calling_window": {"start_hour": 8, "end_hour": 20}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 1,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Blocked: the once-per-week outreach limit has already been reached.",
+      "demo_call_context": {
+        "data_status": "fictional_demo_only",
+        "for": "medication adherence",
+        "risk_drivers": [
+          "A refill pickup was delayed in this fictional scenario",
+          "The member has questions about medication costs",
+          "The medication schedule may feel confusing to the member",
+          "A clinician follow-up about medication questions is not documented",
+          "Recent pharmacy access has not been checked"
+        ],
+        "care_team_record": "Fictional demo note: outreach is focused on prescription access and cost questions. The scenario notes a delayed refill pickup, uncertainty about the medication schedule, and no recent check of pharmacy access.",
+        "goals_on_file": [
+          "Raise prescription-cost and access questions with the care team or prescriber.",
+          "Ask the care team what pharmacy-access support may be available.",
+          "Discuss medication questions with a clinician or pharmacist."
+        ],
+        "follow_up_plan": [
+          "Ask whether prescription access or cost is still a concern.",
+          "Offer to note medication questions for the care team; do not advise on medication use.",
+          "Refer medication questions to the prescriber or pharmacist."
+        ]
+      }
+    },
+    {
+      "member_id": "demo-aisha-patel",
+      "name": "Aisha Patel",
+      "date_of_birth": "1993-02-21",
+      "phone": "+15555550104",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/Denver",
+        "calling_window": {"start_hour": 10, "end_hour": 16}
+      },
+      "outreach": {
+        "consent": false,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Blocked: no recorded outreach consent, despite DNC being false.",
+      "demo_call_context": {
+        "data_status": "fictional_demo_only",
+        "for": "likelihood of high cost",
+        "risk_drivers": [
+          "Out-of-pocket diabetes supply costs may be a barrier in this scenario",
+          "Two urgent-care or emergency visits are included in the fictional history",
+          "No regular primary-care visit is recorded in the scenario",
+          "Transportation to routine care may be difficult",
+          "A question about diabetes education coverage remains unresolved"
+        ],
+        "care_team_record": "Fictional demo note: the scenario describes possible cost barriers for diabetes supplies, recent urgent-care or ER use, no regular primary-care visit, and an unresolved question about diabetes-education benefits.",
+        "goals_on_file": [
+          "Ask the plan about available diabetes-education resources and related benefits.",
+          "Discuss routine primary-care follow-up options.",
+          "Explore transportation support for routine care."
+        ],
+        "follow_up_plan": [
+          "Ask which care costs or access issues the member would like to discuss.",
+          "Provide only factual plan information available in the demo profile; do not guarantee coverage.",
+          "Ask whether transportation is a barrier and offer to note the concern."
+        ]
+      }
+    },
+    {
+      "member_id": "demo-noah-williams",
+      "name": "Noah Williams",
+      "date_of_birth": "1968-09-09",
+      "phone": "+15555550105",
+      "communication": {
+        "language": "en-US",
+        "local_timezone": "America/Phoenix",
+        "calling_window": {"start_hour": 13, "end_hour": 17}
+      },
+      "outreach": {
+        "consent": true,
+        "do_not_call": false,
+        "member_active": true,
+        "outreach_attempts_7d": 0,
+        "max_outreach_attempts_7d": 1
+      },
+      "scenario": "Time-dependent: eligible only from 1pm through 5pm in the member's local time.",
+      "demo_call_context": {
+        "data_status": "fictional_demo_only",
+        "for": "readmission risk",
+        "risk_drivers": [
+          "A recent hospital discharge is part of this fictional scenario",
+          "A post-discharge follow-up visit is not documented",
+          "The member may have questions about discharge instructions",
+          "Support at home is recorded as limited in this scenario",
+          "Transportation could complicate a follow-up visit"
+        ],
+        "care_team_record": "Fictional demo note: the scenario includes a recent hospital discharge, no documented post-discharge follow-up, questions about discharge instructions, limited support at home, and possible transportation difficulty.",
+        "goals_on_file": [
+          "Discuss arranging a post-discharge follow-up with the care team.",
+          "Raise questions about discharge instructions with the treating care team.",
+          "Explore transportation support for a follow-up visit."
+        ],
+        "follow_up_plan": [
+          "Ask whether a post-discharge follow-up has been arranged and note any barriers.",
+          "Refer questions about discharge instructions to the treating care team; do not interpret them.",
+          "Ask whether transportation or support at home is a concern the member wants noted."
+        ]
+      }
+    }
+  ]
+}

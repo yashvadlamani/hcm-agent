@@ -21,11 +21,13 @@ New to the project? Read the [Architecture](./architecture.md) overview first; i
 git clone https://github.com/yashvadlamani/hcm-agent.git
 cd hcm-agent
 python -m pip install -e ".[dev]"
-pytest                    # 84 tests, no keys needed
+pytest                    # no keys needed
 clara-chat demo           # a scripted conversation, no keys needed
 ```
 
-This adds three commands: `clara-chat` (talk to Clara in the terminal), `clara-call` (place a call) and `clara-server` (run the server locally). If PowerShell doesn't recognize them, reopen it.
+This adds the commands `clara-interactive-chat` (a typed test call in the browser), `clara-chat` (talk to Clara in the terminal), `clara-call` (place a call), `clara-server` (run the server locally) and the search-index builders. If PowerShell doesn't recognize them, reopen it.
+
+**If Windows blocks a `clara-*` command** ("An Application Control policy has blocked this file"), run the same code through Python instead, for example `python -m hcm_agent.cli.chat_demo interactive`, `python -m hcm_agent.cli.interactive_chat` or `python -m hcm_agent.telephony.server`.
 
 ## 3. Configure
 
@@ -42,6 +44,7 @@ cp config/.env.example .env   # Windows PowerShell: copy config\.env.example .en
 | `PHONE_WEBHOOK_KEY` | Run `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `LIVE_VIEW_PASSWORD` | Any password; it protects the live dashboard |
 | `CLARA_BASE_URL`, `ALLOWED_CALL_NUMBERS`, `MAX_CALLS_PER_HOUR` | [Step 6](#6-deploy-the-clara-server) and [Step 7](#7-deploy-the-call-request-function) |
+| `ESCALATION_LOG_PATH`, `ESCALATION_WEBHOOK_URL`, `AUDIT_LOG_PATH`, `TOOL_CALLS_PER_MINUTE` (all optional) | Where escalations and the audit log are kept, and the per-call tool limit; see [Operations](./operations.md#emergency-escalations) |
 
 ## 4. Choose the model
 
@@ -63,6 +66,28 @@ Clara sends `reasoning_effort=minimal` by default, which keeps gpt-5 replies aro
 **Claude:** set `LLM_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`, and optionally `ANTHROPIC_MODEL` (default `claude-opus-5`).
 
 Try it: `clara-chat interactive` (you type as the patient) or `clara-chat guardrails` (sends risky messages to check the guardrails).
+
+### Build the search indexes
+
+Clara can look things up in the plan policy PDF, the diabetes playbook and the fictional provider directory. Each needs a local search index, built once (the first build downloads a small embedding model, about 130 MB):
+
+```bash
+python -m hcm_agent.tools.playbook
+python -m hcm_agent.tools.policy
+python -m hcm_agent.tools.providers
+```
+
+The indexes go under `data/vectorstore/`, which git ignores. Without them, those lookups fail and Clara says she can't check. Rebuild after changing the source files (add `--rebuild` to the playbook and provider commands).
+
+### Test a call without a phone
+
+An ACS trial number has only 60 minutes of calls, so do most testing locally:
+
+```bash
+python -m hcm_agent.cli.interactive_chat
+```
+
+It opens the live dashboard at `http://127.0.0.1:5050/live` with a form to start a test call and a box to type what the patient says. The form lists the demo members and shows the name and date of birth to give. **Stay silent** and **Hang up** act out those moments, and **Read Clara's replies aloud** speaks through the browser. The call runs through the same server code as a phone call, including identity verification, the agent graph, tools, guardrails and escalation. It needs only the model settings, uses no call minutes, and is reachable only from your machine. Model requests are billed as usual.
 
 ## 5. Get a phone number
 
