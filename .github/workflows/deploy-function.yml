@@ -9,6 +9,10 @@ on:
     branches: [main]
     paths:
       - "hcm_agent/**"
+      - "data/demo_members.json"
+      - "data/playbooks/**"
+      - "data/policies/**"
+      - "data/provider_directory.json"
       - ".github/workflows/deploy-function.yml"
   workflow_dispatch:
 

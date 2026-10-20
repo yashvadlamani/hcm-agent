@@ -13,6 +13,10 @@ on:
       - "hcm_agent/**"
       - "!hcm_agent/azure_functions/**"   # the function has its own workflow
       - "requirements.txt"
+      - "data/demo_members.json"
+      - "data/playbooks/**"
+      - "data/policies/**"
+      - "data/provider_directory.json"
       - ".github/workflows/deploy-server.yml"
   workflow_dispatch:
 
