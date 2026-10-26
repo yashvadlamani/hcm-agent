@@ -70,6 +70,14 @@ def test_safety_agent_routes_a_panic_attack_to_the_fixed_emergency_response():
     assert len(model.seen) == 1
 
 
+def test_safety_prompt_flags_acute_risk_but_not_routine_care_updates():
+    from hcm_agent.workflows.graph import SAFETY_CLASSIFIER_PROMPT as prompt
+    assert "acute situation happening now" in prompt
+    assert "self-harm" in prompt and "panic attack" in prompt and "chest pain" in prompt
+    assert "missed or late medications or refills" in prompt and "up and down" in prompt
+    assert "When uncertain about potentially severe symptoms" not in prompt
+
+
 def invoke_catalog_tool(name, arguments, *, gateway, context, profile=None, verified=False, retrieval_llm=None):
     model = ScriptedChatModel(replies=[call(name, **arguments), AIMessage(content="done")])
     tool_set = build_tools()
