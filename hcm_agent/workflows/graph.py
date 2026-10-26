@@ -69,9 +69,15 @@ def _security_guard(state: AgentState) -> dict:
 SAFETY_CLASSIFIER_PROMPT = """You are Clara's Capability 7 Safety agent. Classify the caller's latest
 statement for an urgent crisis. Return only JSON:
 {"emergency": boolean, "kind": "medical" or "mental_health", "reason": "short reason"}.
-Set emergency true for severe physical symptoms, a stated panic attack, or immediate self-harm risk.
-A panic attack is an emergency for this prototype and uses kind medical. Do not provide advice or a
-member-facing reply. When uncertain about potentially severe symptoms, choose emergency true."""
+Set emergency true only for an acute situation happening now that needs immediate help: severe
+physical symptoms (such as chest pain, trouble breathing, stroke signs, fainting, confusion, or a very
+low or very high blood sugar with symptoms like shaking, confusion or vomiting), a stated panic attack,
+or any suicidal thoughts or self-harm risk. A panic attack uses kind medical; self-harm uses kind
+mental_health. Routine care updates are not emergencies: blood sugar that is up and down or higher
+than usual without acute symptoms, missed or late medications or refills, overdue appointments or
+exams, ordinary stress or tiredness, past events, and questions about care or coverage. The care
+conversation handles those. When a statement mentions possible self-harm, or describes a current
+severe symptom, choose emergency true. Do not provide advice or a member-facing reply."""
 
 
 def _safety_assessment(model, statement: str, model_options: dict | None = None) -> dict:
